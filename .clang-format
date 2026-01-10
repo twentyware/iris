@@ -1,0 +1,6 @@
+# Generated from CLion C/C++ Code Style settings
+---
+Language: Cpp
+BasedOnStyle: Chromium
+TabWidth: 4
+...
