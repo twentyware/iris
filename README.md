@@ -1,4 +1,4 @@
-Prolonged eye strain and looking at a computer screen for a prolonged period is a common source of fatigue and worsened
+Looking at a computer screen for a prolonged period causes eye strain, and is a common source of fatigue and worsened
 vision. The easiest way to save your eyes is to follow the 20-20-20 rule: every 20 minutes, take a 20-second break and
 look at something 20 feet away (>6 meters). TwentyWare Iris reminds you to take these breaks without distrupting your
 workflow. It gently fades your screen to black for a second every 20 minutes, which is enough for being reminded, but
