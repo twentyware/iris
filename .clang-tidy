@@ -20,7 +20,7 @@ Checks: "*,
 "
 # Naming violations are hard errors; other checks remain advisory warnings.
 WarningsAsErrors: 'readability-identifier-naming'
-HeaderFilterRegex: 'src/'
+HeaderFilterRegex: '/src/'
 FormatStyle:     none
 
 CheckOptions:

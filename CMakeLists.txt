@@ -118,7 +118,8 @@ CPMAddPackage(
 
 add_executable(iris_tests tests/test_fade_controller.cpp)
 target_link_libraries(iris_tests PRIVATE iris_core)
-target_include_directories(iris_tests PRIVATE "${doctest_SOURCE_DIR}")
+# SYSTEM so clang-tidy does not lint doctest's own (non-conforming) headers.
+target_include_directories(iris_tests SYSTEM PRIVATE "${doctest_SOURCE_DIR}")
 add_test(NAME unit COMMAND iris_tests)
 
 # End-to-end self-test that exercises the real overlay backend and exits after
