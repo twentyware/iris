@@ -4,49 +4,47 @@
 #include <cstdio>
 #include <exception>
 
-namespace iris {
+namespace Iris {
 
-App::App(Overlay& overlay, const Config& config)
-    : overlay_(overlay), controller_(config, Clock::now()) {}
+App::App(Overlay &screen_overlay, const Config &config)
+    : screen_overlay_(screen_overlay), controller_(config, Clock::now()) {}
 
 void App::tick(TimePoint now) {
   const FadeState state = controller_.update(now);
-  if (state.overlayVisible) {
-    if (!overlayShown_) {
-      overlay_.show();
-      overlayShown_ = true;
+  if (state.overlay_visible) {
+    if (!overlay_shown_) {
+      screen_overlay_.show();
+      overlay_shown_ = true;
     }
-    overlay_.setAlpha(state.alpha);
-  } else if (overlayShown_) {
-    overlay_.hide();
-    overlayShown_ = false;
+    screen_overlay_.set_alpha(state.alpha);
+  } else if (overlay_shown_) {
+    screen_overlay_.hide();
+    overlay_shown_ = false;
   }
 }
 
-void App::setEnabled(bool enabled) {
-  controller_.setEnabled(enabled, Clock::now());
+void App::set_enabled(bool enabled) { controller_.set_enabled(enabled, Clock::now()); }
+
+void App::set_interval_minutes(int minutes) {
+  controller_.set_interval(std::chrono::minutes(minutes), Clock::now());
 }
 
-void App::setIntervalMinutes(int minutes) {
-  controller_.setInterval(std::chrono::minutes(minutes), Clock::now());
-}
-
-int App::intervalMinutes() const {
+int App::interval_minutes() const {
   return static_cast<int>(
-      std::chrono::duration_cast<std::chrono::minutes>(controller_.interval())
-          .count());
+    std::chrono::duration_cast<std::chrono::minutes>(controller_.interval()).count()
+  );
 }
 
-int irisRun(const std::vector<std::string>& args) {
+int iris_run(const std::vector<std::string> &arguments) {
   try {
-    const Config config = Config::load(args);
-    auto overlay = createOverlay();
-    App app(*overlay, config);
-    return runEventLoop(app, config);
-  } catch (const std::exception& e) {
+    const Config config = Config::load(arguments);
+    auto screen_overlay = create_overlay();
+    App application(*screen_overlay, config);
+    return run_event_loop(application, config);
+  } catch (const std::exception &e) {
     std::fprintf(stderr, "iris: fatal error: %s\n", e.what());
     return 1;
   }
 }
 
-}  // namespace iris
+} // namespace Iris

@@ -6,48 +6,46 @@
 #include "config.h"
 #include "fade_controller.h"
 
-using namespace iris;
+using namespace Iris;
 using namespace std::chrono;
 
 namespace {
 
-Config makeConfig() {
+Config make_config() {
   Config config;
   config.interval = milliseconds(1000);
-  config.fadeIn = milliseconds(300);
+  config.fade_in = milliseconds(300);
   config.hold = milliseconds(300);
-  config.fadeOut = milliseconds(300);
+  config.fade_out = milliseconds(300);
   return config;
 }
 
 // A fixed origin so tests can build time points from millisecond offsets.
-const TimePoint kOrigin{};
+const TimePoint origin{};
 
-TimePoint at(long long ms) {
-  return kOrigin + milliseconds(ms);
-}
+TimePoint at(long long ms) { return origin + milliseconds(ms); }
 
-}  // namespace
+} // namespace
 
 TEST_CASE("stays idle before the interval elapses") {
-  FadeController controller(makeConfig(), at(0));
+  FadeController controller(make_config(), at(0));
 
   auto state = controller.update(at(500));
-  CHECK(state.overlayVisible == false);
+  CHECK(state.overlay_visible == false);
   CHECK(state.alpha == doctest::Approx(0.0F));
   CHECK(controller.phase() == Phase::Idle);
 
   state = controller.update(at(999));
-  CHECK(state.overlayVisible == false);
+  CHECK(state.overlay_visible == false);
 }
 
 TEST_CASE("fade-in ramps alpha from 0 to 1") {
-  FadeController controller(makeConfig(), at(0));
+  FadeController controller(make_config(), at(0));
 
   // Enter fade-in just after the interval.
   auto state = controller.update(at(1000));
   CHECK(controller.phase() == Phase::FadeIn);
-  CHECK(state.overlayVisible == true);
+  CHECK(state.overlay_visible == true);
   CHECK(state.alpha == doctest::Approx(0.0F));
 
   // Halfway through the 300ms fade-in.
@@ -60,16 +58,16 @@ TEST_CASE("fade-in ramps alpha from 0 to 1") {
 }
 
 TEST_CASE("holds full black during the hold phase") {
-  FadeController controller(makeConfig(), at(0));
-  controller.update(at(1000));  // fade-in
-  auto state = controller.update(at(1450));  // 150ms into hold
+  FadeController controller(make_config(), at(0));
+  controller.update(at(1000));              // fade-in
+  auto state = controller.update(at(1450)); // 150ms into hold
   CHECK(controller.phase() == Phase::Hold);
-  CHECK(state.overlayVisible == true);
+  CHECK(state.overlay_visible == true);
   CHECK(state.alpha == doctest::Approx(1.0F));
 }
 
 TEST_CASE("fade-out ramps alpha from 1 back to 0 and returns to idle") {
-  FadeController controller(makeConfig(), at(0));
+  FadeController controller(make_config(), at(0));
   controller.update(at(1000));
 
   // Middle of fade-out (interval 1000 + in 300 + hold 300 = 1600 start).
@@ -80,53 +78,53 @@ TEST_CASE("fade-out ramps alpha from 1 back to 0 and returns to idle") {
   // After the full cycle we are idle again and a fade has completed.
   state = controller.update(at(1900));
   CHECK(controller.phase() == Phase::Idle);
-  CHECK(state.overlayVisible == false);
-  CHECK(controller.completedFades() == 1);
+  CHECK(state.overlay_visible == false);
+  CHECK(controller.completed_fades() == 1);
 }
 
 TEST_CASE("a single coarse update can cross multiple phase boundaries") {
-  FadeController controller(makeConfig(), at(0));
+  FadeController controller(make_config(), at(0));
   // Jump far past a full cycle in one step.
   auto state = controller.update(at(5000));
-  CHECK(controller.completedFades() >= 1);
+  CHECK(controller.completed_fades() >= 1);
   // 5000ms: cycle length is 1900ms. 5000 = 1900*2 + 1200. Second cycle's idle
   // ends at 3800; +1000 interval = 4800 -> fade-in started, 200ms in.
   CHECK(controller.phase() == Phase::FadeIn);
-  CHECK(state.overlayVisible == true);
+  CHECK(state.overlay_visible == true);
 }
 
 TEST_CASE("disabling hides the overlay and resets the timer") {
-  FadeController controller(makeConfig(), at(0));
+  FadeController controller(make_config(), at(0));
 
-  controller.setEnabled(false, at(900));
+  controller.set_enabled(false, at(900));
   auto state = controller.update(at(2000));
-  CHECK(state.overlayVisible == false);
+  CHECK(state.overlay_visible == false);
   CHECK(controller.phase() == Phase::Idle);
 
   // Re-enable: the interval must restart, so no fade at +500ms...
-  controller.setEnabled(true, at(2000));
+  controller.set_enabled(true, at(2000));
   state = controller.update(at(2500));
-  CHECK(state.overlayVisible == false);
+  CHECK(state.overlay_visible == false);
 
   // ...but a fade after a full fresh interval.
   state = controller.update(at(3050));
-  CHECK(state.overlayVisible == true);
+  CHECK(state.overlay_visible == true);
   CHECK(controller.phase() == Phase::FadeIn);
 }
 
 TEST_CASE("changing the interval while idle takes effect immediately") {
-  FadeController controller(makeConfig(), at(0));
+  FadeController controller(make_config(), at(0));
   controller.update(at(100));
 
-  controller.setInterval(milliseconds(2000), at(100));
+  controller.set_interval(milliseconds(2000), at(100));
   CHECK(controller.interval() == milliseconds(2000));
 
   // Old interval (1000) would have fired; the new one (2000) should not yet.
   auto state = controller.update(at(1500));
-  CHECK(state.overlayVisible == false);
+  CHECK(state.overlay_visible == false);
 
   state = controller.update(at(2150));
-  CHECK(state.overlayVisible == true);
+  CHECK(state.overlay_visible == true);
 }
 
 TEST_CASE("config parses selftest and interval overrides") {

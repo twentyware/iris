@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace iris {
+namespace Iris {
 
 /// Immutable, baked-in runtime configuration.
 ///
@@ -15,21 +15,21 @@ namespace iris {
 /// CI to exercise the real overlay backend without waiting 20 minutes.
 struct Config {
   std::chrono::milliseconds interval{std::chrono::minutes(20)};
-  std::chrono::milliseconds fadeIn{333};
+  std::chrono::milliseconds fade_in{333};
   std::chrono::milliseconds hold{334};
-  std::chrono::milliseconds fadeOut{333};
+  std::chrono::milliseconds fade_out{333};
 
   /// When true, run a single accelerated fade and exit 0. Used by CI.
   bool selftest{false};
 
   /// Parses configuration from environment variables and command-line
-  /// arguments. Later sources win: defaults < env < args.
+  /// arguments. Later sources win: defaults < environment_value < arguments.
   ///
   /// - `IRIS_INTERVAL_SECONDS=<n>` sets the interval.
   /// - `--interval-seconds <n>` sets the interval.
   /// - `--selftest` enables self-test mode (and shortens the interval so a
   ///   fade happens promptly).
-  static Config load(const std::vector<std::string>& args);
+  static Config load(const std::vector<std::string> &arguments);
 };
 
-}  // namespace iris
+} // namespace Iris

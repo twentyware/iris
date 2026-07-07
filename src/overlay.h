@@ -2,7 +2,7 @@
 
 #include <memory>
 
-namespace iris {
+namespace Iris {
 
 /// A full-screen black overlay whose opacity can be animated.
 ///
@@ -13,14 +13,14 @@ namespace iris {
 ///
 /// Threading: all methods must be called on the platform's UI thread.
 class Overlay {
- public:
+public:
   virtual ~Overlay() = default;
 
   /// Makes the overlay visible (starting at its current alpha).
   virtual void show() = 0;
 
   /// Sets opacity in [0, 1]; 0 is fully transparent, 1 is fully black.
-  virtual void setAlpha(float alpha) = 0;
+  virtual void set_alpha(float alpha) = 0;
 
   /// Hides the overlay so nothing is drawn.
   virtual void hide() = 0;
@@ -28,6 +28,6 @@ class Overlay {
 
 /// Creates the platform overlay. Defined in the platform backend.
 /// Throws std::runtime_error if the overlay cannot be created.
-std::unique_ptr<Overlay> createOverlay();
+std::unique_ptr<Overlay> create_overlay();
 
-}  // namespace iris
+} // namespace Iris

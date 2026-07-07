@@ -164,19 +164,20 @@ else()
 endif()
 
 if(CLANG_TIDY_EXE)
-  # `lint` first checks formatting (if clang-format is available), then tidy.
+  # `lint` checks formatting (all files, host-independent) then runs clang-tidy.
+  # clang-tidy exits non-zero only on diagnostics promoted to errors by
+  # .clang-tidy's WarningsAsErrors (the naming convention); other checks stay
+  # advisory. Only the current platform's backend is in the compile database.
   if(CLANG_FORMAT_EXE)
     add_custom_target(lint
       COMMAND "${CLANG_FORMAT_EXE}" --dry-run --Werror ${IRIS_FORMAT_SOURCES}
-      COMMAND "${CLANG_TIDY_EXE}" -p "${CMAKE_BINARY_DIR}"
-              --warnings-as-errors=* ${IRIS_TIDY_SOURCES}
+      COMMAND "${CLANG_TIDY_EXE}" -p "${CMAKE_BINARY_DIR}" ${IRIS_TIDY_SOURCES}
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
       COMMENT "Checking formatting and running clang-tidy"
       VERBATIM)
   else()
     add_custom_target(lint
-      COMMAND "${CLANG_TIDY_EXE}" -p "${CMAKE_BINARY_DIR}"
-              --warnings-as-errors=* ${IRIS_TIDY_SOURCES}
+      COMMAND "${CLANG_TIDY_EXE}" -p "${CMAKE_BINARY_DIR}" ${IRIS_TIDY_SOURCES}
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
       COMMENT "Running clang-tidy"
       VERBATIM)

@@ -1,6 +1,6 @@
 // macOS backend. The overlay is a borderless, mouse-ignoring NSWindow at the
 // shielding window level (above everything, including the menu bar) whose
-// alphaValue is animated. The app is an accessory agent (no Dock icon) with an
+// alphaValue is animated. The application is an accessory agent (no Dock icon) with an
 // NSStatusBar item. A manual Cocoa event pump on the main thread drives ticks,
 // mirroring the Windows loop, so events are always processed.
 
@@ -14,15 +14,15 @@
 #include "overlay.h"
 #include "tray.h"
 
-namespace iris {
+namespace Iris {
 
 /// Screen-covering overlay window with animated opacity.
 class MacOverlay : public Overlay {
- public:
+public:
   MacOverlay() {
     // Union of all screen frames so the overlay spans every display.
     NSRect frame = NSZeroRect;
-    for (NSScreen* screen in [NSScreen screens]) {
+    for (NSScreen *screen in [NSScreen screens]) {
       frame = NSUnionRect(frame, [screen frame]);
     }
     if (NSIsEmptyRect(frame)) {
@@ -39,162 +39,155 @@ class MacOverlay : public Overlay {
     [window_ setBackgroundColor:[NSColor blackColor]];
     [window_ setAlphaValue:0.0];
     [window_ setIgnoresMouseEvents:YES];
-    [window_ setCollectionBehavior:
-                  NSWindowCollectionBehaviorCanJoinAllSpaces |
-                  NSWindowCollectionBehaviorFullScreenAuxiliary |
-                  NSWindowCollectionBehaviorStationary |
-                  NSWindowCollectionBehaviorIgnoresCycle];
+    [window_ setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                   NSWindowCollectionBehaviorFullScreenAuxiliary |
+                                   NSWindowCollectionBehaviorStationary |
+                                   NSWindowCollectionBehaviorIgnoresCycle];
   }
 
   void show() override { [window_ orderFrontRegardless]; }
 
-  void setAlpha(float alpha) override {
-    [window_ setAlphaValue:static_cast<CGFloat>(alpha)];
-  }
+  void set_alpha(float alpha) override { [window_ setAlphaValue:static_cast<CGFloat>(alpha)]; }
 
   void hide() override { [window_ orderOut:nil]; }
 
- private:
-  NSWindow* window_{nil};  // retained for the process lifetime
+private:
+  NSWindow *window_{nil}; // retained for the process lifetime
 };
 
-}  // namespace iris
+} // namespace Iris
 
 /// Objective-C target for status-bar menu actions, bridging to TrayCallbacks.
 @interface IrisMenuTarget : NSObject {
- @public
-  iris::TrayCallbacks callbacks;
-  NSMenuItem* enabledItem;
+@public
+  Iris::TrayCallbacks callbacks;
+  NSMenuItem *enabled_item;
 }
-- (void)toggleEnabled:(id)sender;
-- (void)selectInterval:(id)sender;
+- (void)toggle_enabled:(id)sender;
+- (void)select_interval:(id)sender;
 - (void)quit:(id)sender;
 @end
 
 @implementation IrisMenuTarget
-- (void)toggleEnabled:(id)sender {
-  NSMenuItem* item = (NSMenuItem*)sender;
+- (void)toggle_enabled:(id)sender {
+  NSMenuItem *item = (NSMenuItem *)sender;
   BOOL enabled = ([item state] != NSControlStateValueOn);
   [item setState:enabled ? NSControlStateValueOn : NSControlStateValueOff];
-  if (callbacks.onEnabledChanged) {
-    callbacks.onEnabledChanged(enabled);
+  if (callbacks.on_enabled_changed) {
+    callbacks.on_enabled_changed(enabled);
   }
 }
-- (void)selectInterval:(id)sender {
-  NSMenuItem* item = (NSMenuItem*)sender;
-  for (NSMenuItem* sibling in [[item menu] itemArray]) {
+- (void)select_interval:(id)sender {
+  NSMenuItem *item = (NSMenuItem *)sender;
+  for (NSMenuItem *sibling in [[item menu] itemArray]) {
     [sibling setState:NSControlStateValueOff];
   }
   [item setState:NSControlStateValueOn];
-  if (callbacks.onIntervalChanged) {
-    callbacks.onIntervalChanged(static_cast<int>([item tag]));
+  if (callbacks.on_interval_changed) {
+    callbacks.on_interval_changed(static_cast<int>([item tag]));
   }
 }
 - (void)quit:(id)sender {
-  if (callbacks.onQuit) {
-    callbacks.onQuit();
+  if (callbacks.on_quit) {
+    callbacks.on_quit();
   }
 }
 @end
 
-namespace iris {
+namespace Iris {
 
 /// NSStatusBar tray icon and menu.
 class MacTray : public Tray {
- public:
-  explicit MacTray(const TrayCallbacks& callbacks) {
-    target_ = [[IrisMenuTarget alloc] init];
-    target_->callbacks = callbacks;
+public:
+  explicit MacTray(const TrayCallbacks &callbacks) {
+    menu_target_ = [[IrisMenuTarget alloc] init];
+    menu_target_->callbacks = callbacks;
 
-    statusItem_ = [[[NSStatusBar systemStatusBar]
-        statusItemWithLength:NSVariableStatusItemLength] retain];
-    [[statusItem_ button] setTitle:@"◐"];  // half-filled circle glyph
+    status_item_ =
+      [[[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength] retain];
+    [[status_item_ button] setTitle:@"◐"]; // half-filled circle glyph
 
-    NSMenu* menu = [[NSMenu alloc] init];
+    NSMenu *menu = [[NSMenu alloc] init];
 
-    NSMenuItem* enabled = [[NSMenuItem alloc] initWithTitle:@"Enabled"
-                                                     action:@selector(toggleEnabled:)
+    NSMenuItem *enabled = [[NSMenuItem alloc] initWithTitle:@"Enabled"
+                                                     action:@selector(toggle_enabled:)
                                               keyEquivalent:@""];
-    [enabled setTarget:target_];
+    [enabled setTarget:menu_target_];
     [enabled setState:NSControlStateValueOn];
     [menu addItem:enabled];
-    target_->enabledItem = enabled;
+    menu_target_->enabled_item = enabled;
 
-    NSMenuItem* intervalItem = [[NSMenuItem alloc] initWithTitle:@"Interval"
-                                                          action:nil
-                                                   keyEquivalent:@""];
-    NSMenu* intervalMenu = [[NSMenu alloc] init];
-    for (int preset : kIntervalPresets) {
-      NSString* label = [NSString stringWithFormat:@"%d minutes", preset];
-      NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:label
-                                                    action:@selector(selectInterval:)
+    NSMenuItem *interval_item = [[NSMenuItem alloc] initWithTitle:@"Interval"
+                                                           action:nil
+                                                    keyEquivalent:@""];
+    NSMenu *interval_menu = [[NSMenu alloc] init];
+    for (int preset : interval_presets) {
+      NSString *label = [NSString stringWithFormat:@"%d minutes", preset];
+      NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:label
+                                                    action:@selector(select_interval:)
                                              keyEquivalent:@""];
-      [item setTarget:target_];
+      [item setTarget:menu_target_];
       [item setTag:preset];
-      [intervalMenu addItem:item];
-      [intervalItems_ addObject:item];
+      [interval_menu addItem:item];
+      [interval_items_ addObject:item];
     }
-    [intervalItem setSubmenu:intervalMenu];
-    [menu addItem:intervalItem];
+    [interval_item setSubmenu:interval_menu];
+    [menu addItem:interval_item];
 
     [menu addItem:[NSMenuItem separatorItem]];
 
-    NSMenuItem* quit = [[NSMenuItem alloc] initWithTitle:@"Quit"
+    NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"Quit"
                                                   action:@selector(quit:)
                                            keyEquivalent:@""];
-    [quit setTarget:target_];
+    [quit setTarget:menu_target_];
     [menu addItem:quit];
 
-    [statusItem_ setMenu:menu];
+    [status_item_ setMenu:menu];
   }
 
-  void setEnabled(bool enabled) override {
-    [target_->enabledItem
-        setState:enabled ? NSControlStateValueOn : NSControlStateValueOff];
+  void set_enabled(bool enabled) override {
+    [menu_target_->enabled_item setState:enabled ? NSControlStateValueOn : NSControlStateValueOff];
   }
 
-  void setIntervalMinutes(int minutes) override {
-    for (NSMenuItem* item in intervalItems_) {
-      [item setState:([item tag] == minutes) ? NSControlStateValueOn
-                                             : NSControlStateValueOff];
+  void set_interval_minutes(int minutes) override {
+    for (NSMenuItem *item in interval_items_) {
+      [item setState:([item tag] == minutes) ? NSControlStateValueOn : NSControlStateValueOff];
     }
   }
 
- private:
-  IrisMenuTarget* target_{nil};
-  NSStatusItem* statusItem_{nil};
-  NSMutableArray<NSMenuItem*>* intervalItems_{[[NSMutableArray alloc] init]};
+private:
+  IrisMenuTarget *menu_target_{nil};
+  NSStatusItem *status_item_{nil};
+  NSMutableArray<NSMenuItem *> *interval_items_{[[NSMutableArray alloc] init]};
 };
 
-std::unique_ptr<Overlay> createOverlay() {
-  return std::make_unique<MacOverlay>();
-}
+std::unique_ptr<Overlay> create_overlay() { return std::make_unique<MacOverlay>(); }
 
-std::unique_ptr<Tray> createTray(const TrayCallbacks& callbacks) {
+std::unique_ptr<Tray> create_tray(const TrayCallbacks &callbacks) {
   return std::make_unique<MacTray>(callbacks);
 }
 
-int runEventLoop(App& app, const Config& config) {
+int run_event_loop(App &application, const Config &config) {
   @autoreleasepool {
-    NSApplication* nsApp = [NSApplication sharedApplication];
+    NSApplication *ns_application = [NSApplication sharedApplication];
     // Accessory agent: no Dock icon, status-bar item only.
-    [nsApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
-    [nsApp finishLaunching];
+    [ns_application setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    [ns_application finishLaunching];
 
     bool running = true;
-    std::unique_ptr<Tray> tray;
+    std::unique_ptr<Tray> tray_icon;
     if (!config.selftest) {
       TrayCallbacks callbacks;
-      callbacks.onEnabledChanged = [&app](bool enabled) {
-        app.setEnabled(enabled);
+      callbacks.on_enabled_changed = [&application](bool enabled) {
+        application.set_enabled(enabled);
       };
-      callbacks.onIntervalChanged = [&app](int minutes) {
-        app.setIntervalMinutes(minutes);
+      callbacks.on_interval_changed = [&application](int minutes) {
+        application.set_interval_minutes(minutes);
       };
-      callbacks.onQuit = [&running]() { running = false; };
-      tray = createTray(callbacks);
-      tray->setEnabled(app.enabled());
-      tray->setIntervalMinutes(app.intervalMinutes());
+      callbacks.on_quit = [&running]() { running = false; };
+      tray_icon = create_tray(callbacks);
+      tray_icon->set_enabled(application.enabled());
+      tray_icon->set_interval_minutes(application.interval_minutes());
     }
 
     const auto deadline = Clock::now() + std::chrono::seconds(30);
@@ -203,21 +196,20 @@ int runEventLoop(App& app, const Config& config) {
       @autoreleasepool {
         // Drain all pending events without blocking.
         while (true) {
-          NSEvent* event =
-              [nsApp nextEventMatchingMask:NSEventMaskAny
-                                 untilDate:[NSDate distantPast]
-                                    inMode:NSDefaultRunLoopMode
-                                   dequeue:YES];
+          NSEvent *event = [ns_application nextEventMatchingMask:NSEventMaskAny
+                                                       untilDate:[NSDate distantPast]
+                                                          inMode:NSDefaultRunLoopMode
+                                                         dequeue:YES];
           if (event == nil) {
             break;
           }
-          [nsApp sendEvent:event];
+          [ns_application sendEvent:event];
         }
 
-        app.tick(Clock::now());
+        application.tick(Clock::now());
 
         if (config.selftest) {
-          if (app.completedFades() >= 1) {
+          if (application.completed_fades() >= 1) {
             return 0;
           }
           if (Clock::now() > deadline) {
@@ -232,4 +224,4 @@ int runEventLoop(App& app, const Config& config) {
   return 0;
 }
 
-}  // namespace iris
+} // namespace Iris

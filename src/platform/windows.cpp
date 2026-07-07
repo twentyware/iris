@@ -23,283 +23,285 @@
 #undef min
 #undef max
 
-namespace iris {
+namespace Iris {
 
 namespace {
 
-constexpr wchar_t kOverlayClass[] = L"IrisOverlayClass";
-constexpr wchar_t kTrayClass[] = L"IrisTrayClass";
-constexpr UINT kTrayCallbackMessage = WM_USER + 1;
-constexpr UINT kTrayIconId = 1;
+constexpr wchar_t overlay_class[] = L"IrisOverlayClass";
+constexpr wchar_t tray_class[] = L"IrisTrayClass";
+constexpr UINT tray_callback_message = WM_USER + 1;
+constexpr UINT tray_icon_id = 1;
 
 // Menu command ids. Interval presets occupy a contiguous range so the handler
-// can map a command back to kIntervalPresets by offset.
-constexpr UINT kCmdEnable = 100;
-constexpr UINT kCmdQuit = 101;
-constexpr UINT kCmdIntervalBase = 200;
+// can map a command back to interval_presets by offset.
+constexpr UINT cmd_enable = 100;
+constexpr UINT cmd_quit = 101;
+constexpr UINT cmd_interval_base = 200;
 
-}  // namespace
+} // namespace
 
 /// Layered full-screen overlay window.
 class WindowsOverlay : public Overlay {
- public:
+public:
   WindowsOverlay() {
-    WNDCLASSW cls = {};
-    cls.lpfnWndProc = DefWindowProcW;
-    cls.hInstance = GetModuleHandleW(nullptr);
-    cls.lpszClassName = kOverlayClass;
-    cls.hbrBackground = CreateSolidBrush(RGB(0, 0, 0));
-    RegisterClassW(&cls);
+    WNDCLASSW window_class = {};
+    window_class.lpfnWndProc = DefWindowProcW;
+    window_class.hInstance = GetModuleHandleW(nullptr);
+    window_class.lpszClassName = overlay_class;
+    window_class.hbrBackground = CreateSolidBrush(RGB(0, 0, 0));
+    RegisterClassW(&window_class);
 
-    const int x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    const int y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    const int w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    const int h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    const int screen_left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    const int screen_top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    const int screen_width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    const int screen_height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-    hwnd_ = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE |
-            WS_EX_TOOLWINDOW,  // no taskbar button, click-through, no focus
-        kOverlayClass, L"Iris Overlay", WS_POPUP, x, y, w, h, nullptr, nullptr,
-        GetModuleHandleW(nullptr), nullptr);
-    if (hwnd_ == nullptr) {
+    window_handle_ = CreateWindowExW(
+      WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE |
+        WS_EX_TOOLWINDOW, // no taskbar button, click-through, no focus
+      overlay_class, L"Iris Overlay", WS_POPUP, screen_left, screen_top, screen_width,
+      screen_height, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr
+    );
+    if (window_handle_ == nullptr) {
       throw std::runtime_error("Failed to create overlay window");
     }
-    SetLayeredWindowAttributes(hwnd_, RGB(0, 0, 0), 0, LWA_ALPHA);
+    SetLayeredWindowAttributes(window_handle_, RGB(0, 0, 0), 0, LWA_ALPHA);
   }
 
   ~WindowsOverlay() override {
-    if (hwnd_ != nullptr) {
-      DestroyWindow(hwnd_);
+    if (window_handle_ != nullptr) {
+      DestroyWindow(window_handle_);
     }
   }
 
-  WindowsOverlay(const WindowsOverlay&) = delete;
-  WindowsOverlay& operator=(const WindowsOverlay&) = delete;
+  WindowsOverlay(const WindowsOverlay &) = delete;
+  WindowsOverlay &operator=(const WindowsOverlay &) = delete;
 
-  void show() override { ShowWindow(hwnd_, SW_SHOWNOACTIVATE); }
+  void show() override { ShowWindow(window_handle_, SW_SHOWNOACTIVATE); }
 
-  void setAlpha(float alpha) override {
-    const auto value = static_cast<BYTE>(alpha * 255.0F + 0.5F);
-    SetLayeredWindowAttributes(hwnd_, RGB(0, 0, 0), value, LWA_ALPHA);
+  void set_alpha(float alpha) override {
+    const auto alpha_byte = static_cast<BYTE>(alpha * 255.0F + 0.5F);
+    SetLayeredWindowAttributes(window_handle_, RGB(0, 0, 0), alpha_byte, LWA_ALPHA);
   }
 
-  void hide() override { ShowWindow(hwnd_, SW_HIDE); }
+  void hide() override { ShowWindow(window_handle_, SW_HIDE); }
 
- private:
-  HWND hwnd_{nullptr};
+private:
+  HWND window_handle_{nullptr};
 };
 
 /// Shell_NotifyIcon tray icon with a context menu.
 class WindowsTray : public Tray {
- public:
-  explicit WindowsTray(TrayCallbacks callbacks)
-      : callbacks_(std::move(callbacks)) {
-    WNDCLASSW cls = {};
-    cls.lpfnWndProc = &WindowsTray::wndProc;
-    cls.hInstance = GetModuleHandleW(nullptr);
-    cls.lpszClassName = kTrayClass;
-    RegisterClassW(&cls);
+public:
+  explicit WindowsTray(TrayCallbacks callbacks) : callbacks_(std::move(callbacks)) {
+    WNDCLASSW window_class = {};
+    window_class.lpfnWndProc = &WindowsTray::window_procedure;
+    window_class.hInstance = GetModuleHandleW(nullptr);
+    window_class.lpszClassName = tray_class;
+    RegisterClassW(&window_class);
 
     // A hidden top-level window (never shown) rather than a message-only
     // window, so SetForegroundWindow works and the tray menu dismisses
     // correctly when the user clicks elsewhere.
-    hwnd_ = CreateWindowExW(0, kTrayClass, L"Iris", WS_OVERLAPPED, 0, 0, 0, 0,
-                            nullptr, nullptr, GetModuleHandleW(nullptr), this);
-    if (hwnd_ == nullptr) {
+    window_handle_ = CreateWindowExW(
+      0, tray_class, L"Iris", WS_OVERLAPPED, 0, 0, 0, 0, nullptr, nullptr,
+      GetModuleHandleW(nullptr), this
+    );
+    if (window_handle_ == nullptr) {
       throw std::runtime_error("Failed to create tray message window");
     }
 
-    icon_.cbSize = sizeof(icon_);
-    icon_.hWnd = hwnd_;
-    icon_.uID = kTrayIconId;
-    icon_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    icon_.uCallbackMessage = kTrayCallbackMessage;
-    icon_.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
-    updateTip();
-    Shell_NotifyIconW(NIM_ADD, &icon_);
+    notify_icon_data_.cbSize = sizeof(notify_icon_data_);
+    notify_icon_data_.hWnd = window_handle_;
+    notify_icon_data_.uID = tray_icon_id;
+    notify_icon_data_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    notify_icon_data_.uCallbackMessage = tray_callback_message;
+    notify_icon_data_.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    update_tip();
+    Shell_NotifyIconW(NIM_ADD, &notify_icon_data_);
   }
 
   ~WindowsTray() override {
-    Shell_NotifyIconW(NIM_DELETE, &icon_);
-    if (hwnd_ != nullptr) {
-      DestroyWindow(hwnd_);
+    Shell_NotifyIconW(NIM_DELETE, &notify_icon_data_);
+    if (window_handle_ != nullptr) {
+      DestroyWindow(window_handle_);
     }
   }
 
-  WindowsTray(const WindowsTray&) = delete;
-  WindowsTray& operator=(const WindowsTray&) = delete;
+  WindowsTray(const WindowsTray &) = delete;
+  WindowsTray &operator=(const WindowsTray &) = delete;
 
-  void setEnabled(bool enabled) override {
+  void set_enabled(bool enabled) override {
     enabled_ = enabled;
-    updateTip();
+    update_tip();
   }
 
-  void setIntervalMinutes(int minutes) override {
-    intervalMinutes_ = minutes;
-    updateTip();
+  void set_interval_minutes(int minutes) override {
+    interval_minutes_ = minutes;
+    update_tip();
   }
 
- private:
-  static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam,
-                                  LPARAM lParam) {
-    if (msg == WM_NCCREATE) {
-      auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
-      SetWindowLongPtrW(hwnd, GWLP_USERDATA,
-                        reinterpret_cast<LONG_PTR>(create->lpCreateParams));
-      return DefWindowProcW(hwnd, msg, wParam, lParam);
+private:
+  // NOLINTNEXTLINE(readability-identifier-naming) - CALLBACK is a Win32 macro.
+  static LRESULT CALLBACK
+  window_procedure(HWND window_handle, UINT message, WPARAM w_param, LPARAM l_param) {
+    if (message == WM_NCCREATE) {
+      auto *creation_info = reinterpret_cast<CREATESTRUCTW *>(l_param);
+      SetWindowLongPtrW(
+        window_handle, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(creation_info->lpCreateParams)
+      );
+      return DefWindowProcW(window_handle, message, w_param, l_param);
     }
-    auto* self =
-        reinterpret_cast<WindowsTray*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (self != nullptr && self->handle(msg, wParam, lParam)) {
+    auto *self = reinterpret_cast<WindowsTray *>(GetWindowLongPtrW(window_handle, GWLP_USERDATA));
+    if (self != nullptr && self->handle(message, w_param, l_param)) {
       return 0;
     }
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
+    return DefWindowProcW(window_handle, message, w_param, l_param);
   }
 
-  bool handle(UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {
-      case kTrayCallbackMessage:
-        if (LOWORD(lParam) == WM_RBUTTONUP ||
-            LOWORD(lParam) == WM_LBUTTONUP) {
-          showMenu();
-        }
-        return true;
-      case WM_COMMAND:
-        onCommand(LOWORD(wParam));
-        return true;
-      default:
-        return false;
+  bool handle(UINT message, WPARAM w_param, LPARAM l_param) {
+    switch (message) {
+    case tray_callback_message:
+      if (LOWORD(l_param) == WM_RBUTTONUP || LOWORD(l_param) == WM_LBUTTONUP) {
+        show_menu();
+      }
+      return true;
+    case WM_COMMAND:
+      on_command(LOWORD(w_param));
+      return true;
+    default:
+      return false;
     }
   }
 
-  void showMenu() {
+  void show_menu() {
     HMENU menu = CreatePopupMenu();
-    AppendMenuW(menu, MF_STRING | (enabled_ ? MF_CHECKED : 0), kCmdEnable,
-                L"Enabled");
+    AppendMenuW(menu, MF_STRING | (enabled_ ? MF_CHECKED : 0), cmd_enable, L"Enabled");
 
-    HMENU intervalMenu = CreatePopupMenu();
-    for (size_t i = 0; i < std::size(kIntervalPresets); ++i) {
+    HMENU interval_menu = CreatePopupMenu();
+    for (size_t i = 0; i < std::size(interval_presets); ++i) {
       wchar_t label[32];
-      std::swprintf(label, std::size(label), L"%d minutes",
-                    kIntervalPresets[i]);
-      const UINT flags = MF_STRING | (kIntervalPresets[i] == intervalMinutes_
-                                          ? MF_CHECKED
-                                          : 0);
-      AppendMenuW(intervalMenu, flags,
-                  kCmdIntervalBase + static_cast<UINT>(i), label);
+      std::swprintf(label, std::size(label), L"%d minutes", interval_presets[i]);
+      const UINT menu_flags =
+        MF_STRING | (interval_presets[i] == interval_minutes_ ? MF_CHECKED : 0);
+      AppendMenuW(interval_menu, menu_flags, cmd_interval_base + static_cast<UINT>(i), label);
     }
-    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(intervalMenu),
-                L"Interval");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(interval_menu), L"Interval");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, kCmdQuit, L"Quit");
+    AppendMenuW(menu, MF_STRING, cmd_quit, L"Quit");
 
-    POINT pt;
-    GetCursorPos(&pt);
+    POINT cursor_position;
+    GetCursorPos(&cursor_position);
     // Required so the menu dismisses correctly when clicking elsewhere.
-    SetForegroundWindow(hwnd_);
-    TrackPopupMenu(menu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd_, nullptr);
+    SetForegroundWindow(window_handle_);
+    TrackPopupMenu(
+      menu, TPM_RIGHTBUTTON, cursor_position.x, cursor_position.y, 0, window_handle_, nullptr
+    );
     DestroyMenu(menu);
   }
 
-  void onCommand(UINT id) {
-    if (id == kCmdEnable) {
+  void on_command(UINT command_id) {
+    if (command_id == cmd_enable) {
       enabled_ = !enabled_;
-      updateTip();
-      if (callbacks_.onEnabledChanged) {
-        callbacks_.onEnabledChanged(enabled_);
+      update_tip();
+      if (callbacks_.on_enabled_changed) {
+        callbacks_.on_enabled_changed(enabled_);
       }
-    } else if (id == kCmdQuit) {
-      if (callbacks_.onQuit) {
-        callbacks_.onQuit();
+    } else if (command_id == cmd_quit) {
+      if (callbacks_.on_quit) {
+        callbacks_.on_quit();
       }
-    } else if (id >= kCmdIntervalBase &&
-               id < kCmdIntervalBase + std::size(kIntervalPresets)) {
-      intervalMinutes_ = kIntervalPresets[id - kCmdIntervalBase];
-      updateTip();
-      if (callbacks_.onIntervalChanged) {
-        callbacks_.onIntervalChanged(intervalMinutes_);
+    } else if (
+      command_id >= cmd_interval_base &&
+      command_id < cmd_interval_base + std::size(interval_presets)
+    ) {
+      interval_minutes_ = interval_presets[command_id - cmd_interval_base];
+      update_tip();
+      if (callbacks_.on_interval_changed) {
+        callbacks_.on_interval_changed(interval_minutes_);
       }
     }
   }
 
-  void updateTip() {
+  void update_tip() {
     if (enabled_) {
-      std::swprintf(icon_.szTip, std::size(icon_.szTip),
-                    L"Iris - every %d min", intervalMinutes_);
+      std::swprintf(
+        notify_icon_data_.szTip, std::size(notify_icon_data_.szTip), L"Iris - every %d min",
+        interval_minutes_
+      );
     } else {
-      std::swprintf(icon_.szTip, std::size(icon_.szTip), L"Iris - disabled");
+      std::swprintf(
+        notify_icon_data_.szTip, std::size(notify_icon_data_.szTip), L"Iris - disabled"
+      );
     }
-    if (hwnd_ != nullptr) {
-      Shell_NotifyIconW(NIM_MODIFY, &icon_);
+    if (window_handle_ != nullptr) {
+      Shell_NotifyIconW(NIM_MODIFY, &notify_icon_data_);
     }
   }
 
   TrayCallbacks callbacks_;
-  HWND hwnd_{nullptr};
-  NOTIFYICONDATAW icon_{};
+  HWND window_handle_{nullptr};
+  NOTIFYICONDATAW notify_icon_data_{};
   bool enabled_{true};
-  int intervalMinutes_{20};
+  int interval_minutes_{20};
 };
 
-std::unique_ptr<Overlay> createOverlay() {
-  return std::make_unique<WindowsOverlay>();
-}
+std::unique_ptr<Overlay> create_overlay() { return std::make_unique<WindowsOverlay>(); }
 
-std::unique_ptr<Tray> createTray(const TrayCallbacks& callbacks) {
+std::unique_ptr<Tray> create_tray(const TrayCallbacks &callbacks) {
   return std::make_unique<WindowsTray>(callbacks);
 }
 
-int runEventLoop(App& app, const Config& config) {
+int run_event_loop(App &application, const Config &config) {
   bool running = true;
 
-  std::unique_ptr<Tray> tray;
+  std::unique_ptr<Tray> tray_icon;
   if (!config.selftest) {
     TrayCallbacks callbacks;
-    callbacks.onEnabledChanged = [&app, &tray](bool enabled) {
-      app.setEnabled(enabled);
+    callbacks.on_enabled_changed = [&application, &tray_icon](bool enabled) {
+      application.set_enabled(enabled);
     };
-    callbacks.onIntervalChanged = [&app, &tray](int minutes) {
-      app.setIntervalMinutes(minutes);
+    callbacks.on_interval_changed = [&application, &tray_icon](int minutes) {
+      application.set_interval_minutes(minutes);
     };
-    callbacks.onQuit = [&running]() { running = false; };
-    tray = createTray(callbacks);
-    if (tray) {
-      tray->setEnabled(app.enabled());
-      tray->setIntervalMinutes(app.intervalMinutes());
+    callbacks.on_quit = [&running]() { running = false; };
+    tray_icon = create_tray(callbacks);
+    if (tray_icon) {
+      tray_icon->set_enabled(application.enabled());
+      tray_icon->set_interval_minutes(application.interval_minutes());
     }
   }
 
-  const auto selftestDeadline =
-      std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  const auto selftest_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 
-  MSG msg;
+  MSG message;
   while (running) {
-    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-      if (msg.message == WM_QUIT) {
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+      if (message.message == WM_QUIT) {
         running = false;
         break;
       }
-      TranslateMessage(&msg);
-      DispatchMessageW(&msg);
+      TranslateMessage(&message);
+      DispatchMessageW(&message);
     }
     if (!running) {
       break;
     }
 
-    app.tick(std::chrono::steady_clock::now());
+    application.tick(std::chrono::steady_clock::now());
 
     if (config.selftest) {
-      if (app.completedFades() >= 1) {
+      if (application.completed_fades() >= 1) {
         return 0;
       }
-      if (std::chrono::steady_clock::now() > selftestDeadline) {
-        return 1;  // Timed out without completing a fade.
+      if (std::chrono::steady_clock::now() > selftest_deadline) {
+        return 1; // Timed out without completing a fade.
       }
     }
 
-    Sleep(15);  // ~60 fps frame pacing.
+    Sleep(15); // ~60 fps frame pacing.
   }
   return 0;
 }
 
-}  // namespace iris
+} // namespace Iris

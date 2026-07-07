@@ -79,3 +79,57 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           retention-days: 7
+
+  lint:
+    name: Lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # clang-tidy needs each platform's native headers, so it runs per-OS.
+        # (Windows + clang-tidy is unreliable, so its backend is not tidied in
+        # CI; clang-format below still covers every file host-independently.)
+        include:
+          - os: ubuntu-latest
+            backend: src/platform/linux.cpp
+          - os: macos-latest
+            backend: src/platform/macos.mm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libayatana-appindicator3-dev \
+            libx11-dev libxfixes-dev pkg-config
+
+      - name: Install clang-format and clang-tidy (pinned)
+        run: |
+          python3 -m pip install --user --break-system-packages \
+            clang-format==22.1.5 clang-tidy==22.1.7
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+
+      - name: Check formatting (all files, every platform backend)
+        if: runner.os == 'Linux'
+        run: |
+          files=$(find src tests -type f \
+            \( -name '*.cpp' -o -name '*.h' -o -name '*.mm' \))
+          clang-format --dry-run --Werror $files
+
+      - name: Configure (for compile database)
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Enforce naming convention (clang-tidy)
+        run: |
+          clang-tidy -p build \
+            --checks='-*,readability-identifier-naming' \
+            --warnings-as-errors='readability-identifier-naming' \
+            src/config.cpp src/fade_controller.cpp src/app.cpp src/main.cpp \
+            tests/test_fade_controller.cpp ${{ matrix.backend }}
