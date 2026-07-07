@@ -9,18 +9,47 @@ The length of the break is up to you, you can count in your head or stop as you 
 > Note: When looking at the screen, we tend to blink less frequently, which dries out the eyes and also contributes to
 > fatigue. You can also take the opportunity to drink a sip of water during your break.
 
+TwentyWare Iris is cross-platform and runs on Windows, Linux (X11), and macOS. It lives quietly in the
+system tray / menu bar with no window of its own — the only thing you ever see is the brief fade.
+
 ## Installation
 
-Download the latest standalone executable from the [releases page](https://github.com/twentyware/iris/releases).
-To start the program on Windows startup, you can create a shortcut to the executable in the following folder:
-`%appdata%\Microsoft\Windows\Start Menu\Programs\Startup`.
+Download the latest standalone executable for your platform from the
+[releases page](https://github.com/twentyware/iris/releases):
+
+- **Windows** — `iris-windows-x64.exe`. To start it on login, place a shortcut in
+  `%appdata%\Microsoft\Windows\Start Menu\Programs\Startup`.
+- **Linux** — `iris-linux-x64`. Requires an **Xorg session** (Wayland has no client-side overlay
+  protocol; on Ubuntu choose "Ubuntu on Xorg" at the login screen). The tray icon uses AppIndicator,
+  which is built into GNOME on Ubuntu. To start it on login, copy
+  [`packaging/iris.desktop`](packaging/iris.desktop) to `~/.config/autostart/`.
+- **macOS** — `iris-macos-x64.zip`. Unzip and move `Iris.app` to `/Applications`. Add it to
+  **System Settings → General → Login Items** to start it automatically.
 
 ## Configuration
 
-Once the app is started, you can configure the interval length from the notification area icon context menu.
-The default interval is 20 minutes.
+The default interval is 20 minutes. You can pick a different preset (15/20/30/45/60 minutes) or toggle
+the effect on and off from the tray / menu-bar icon.
 
-![Context menu screenshot](assets/notification-tray.png)
+The interval can also be set at launch for testing, via the `IRIS_INTERVAL_SECONDS` environment variable
+or the `--interval-seconds <n>` argument.
+
+## Building from source
+
+Iris uses CMake with [CPM.cmake](https://github.com/cpm-cmake/CPM.cmake) (downloaded automatically at
+configure time — nothing is vendored). On Linux, install the development packages first:
+
+```sh
+sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev libx11-dev libxfixes-dev pkg-config
+```
+
+Then, on any platform:
+
+```sh
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
 
 ## Improve Your Vision
 

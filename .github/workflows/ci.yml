@@ -9,8 +9,21 @@ on:
 
 jobs:
   build:
-    name: Build
-    runs-on: windows-latest
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: iris-windows-x64
+            artifact_path: build/iris.exe
+          - os: ubuntu-latest
+            artifact_name: iris-linux-x64
+            artifact_path: build/iris
+          - os: macos-latest
+            artifact_name: iris-macos-x64
+            artifact_path: build/iris-macos.zip
 
     steps:
       - name: Checkout repository
@@ -19,19 +32,50 @@ jobs:
       - name: Setup CMake and Ninja
         uses: lukka/get-cmake@latest
 
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libx11-dev \
+            libxfixes-dev \
+            pkg-config \
+            xvfb
+
       - name: Setup MSVC
+        if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Configure CMake
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Test (Linux, headless via xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a ctest --test-dir build --output-on-failure
+
+      - name: Test
+        if: runner.os != 'Linux'
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package macOS app bundle
+        if: runner.os == 'macOS'
+        run: |
+          cd build
+          zip -r iris-macos.zip iris.app
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iris-windows-x64
-          path: build/iris.exe
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
           retention-days: 7
-

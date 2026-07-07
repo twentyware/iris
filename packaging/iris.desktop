@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Iris
+Comment=Fades the screen to black every 20 minutes to remind you to rest your eyes
+Exec=iris
+Icon=display-brightness-symbolic
+Terminal=false
+Categories=Utility;
+# Copy this file to ~/.config/autostart/ to start Iris on login.
+X-GNOME-Autostart-enabled=true

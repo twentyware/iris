@@ -1,16 +1,127 @@
-cmake_minimum_required(VERSION 4.0)
-project(iris)
+cmake_minimum_required(VERSION 3.21)
+project(iris LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Ensure x64 architecture
-if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(WARNING "Configuring for 64-bit build")
+# With MinGW, statically link the runtime so the executable is standalone and
+# does not depend on libstdc++/libgcc/winpthread DLLs being on PATH.
+if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  add_link_options(-static -static-libgcc -static-libstdc++)
 endif()
 
-# Build as a Windows GUI application (no console window)
-add_executable(iris WIN32 main.cpp)
+# ---------------------------------------------------------------------------
+# CPM.cmake bootstrap (not vendored: downloaded once into the build tree).
+# ---------------------------------------------------------------------------
+set(CPM_DOWNLOAD_VERSION 0.43.1)
+set(CPM_PATH "${CMAKE_BINARY_DIR}/cmake/CPM.cmake")
+# Download afresh if the cached file is missing or empty (a prior failed run).
+set(_cpm_needs_download TRUE)
+if(EXISTS "${CPM_PATH}")
+  file(SIZE "${CPM_PATH}" _cpm_size)
+  if(_cpm_size GREATER 0)
+    set(_cpm_needs_download FALSE)
+  endif()
+endif()
+if(_cpm_needs_download)
+  set(_cpm_url
+    "https://github.com/cpm-cmake/CPM.cmake/releases/download/v${CPM_DOWNLOAD_VERSION}/CPM.cmake")
+  message(STATUS "Downloading CPM.cmake v${CPM_DOWNLOAD_VERSION}")
+  # Prefer a TLS-verified download. Fall back to unverified only if the local
+  # environment has no CA certificate store (CI runners are always verified).
+  file(DOWNLOAD "${_cpm_url}" "${CPM_PATH}" TLS_VERIFY ON STATUS _cpm_status)
+  list(GET _cpm_status 0 _cpm_code)
+  if(NOT _cpm_code EQUAL 0)
+    list(GET _cpm_status 1 _cpm_error)
+    message(WARNING
+      "Verified download of CPM.cmake failed (${_cpm_error}); "
+      "retrying without TLS verification.")
+    file(DOWNLOAD "${_cpm_url}" "${CPM_PATH}" TLS_VERIFY OFF STATUS _cpm_status)
+    list(GET _cpm_status 0 _cpm_code)
+    if(NOT _cpm_code EQUAL 0)
+      list(GET _cpm_status 1 _cpm_error)
+      file(REMOVE "${CPM_PATH}")
+      message(FATAL_ERROR "Failed to download CPM.cmake: ${_cpm_error}")
+    endif()
+  endif()
+endif()
+include("${CPM_PATH}")
 
-# Link required Windows libraries
-target_link_libraries(iris PRIVATE shell32)
+# ---------------------------------------------------------------------------
+# Platform-independent core (unit-tested, no OS dependencies).
+# ---------------------------------------------------------------------------
+add_library(iris_core STATIC
+  src/config.cpp
+  src/fade_controller.cpp)
+target_include_directories(iris_core PUBLIC src)
+target_compile_features(iris_core PUBLIC cxx_std_20)
+
+# ---------------------------------------------------------------------------
+# Platform backend selection.
+# ---------------------------------------------------------------------------
+if(WIN32)
+  set(IRIS_PLATFORM_SOURCES src/platform/windows.cpp)
+elseif(APPLE)
+  enable_language(OBJCXX)
+  set(IRIS_PLATFORM_SOURCES src/platform/macos.mm)
+else()
+  set(IRIS_PLATFORM_SOURCES src/platform/linux.cpp)
+endif()
+
+# ---------------------------------------------------------------------------
+# Executable.
+# ---------------------------------------------------------------------------
+if(WIN32)
+  add_executable(iris WIN32 src/main.cpp src/app.cpp ${IRIS_PLATFORM_SOURCES})
+  target_link_libraries(iris PRIVATE user32 gdi32 shell32)
+elseif(APPLE)
+  add_executable(iris MACOSX_BUNDLE src/main.cpp src/app.cpp
+    ${IRIS_PLATFORM_SOURCES})
+  set_target_properties(iris PROPERTIES
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/packaging/Info.plist.in"
+    MACOSX_BUNDLE_BUNDLE_NAME "Iris"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "com.twentyware.iris"
+    MACOSX_BUNDLE_BUNDLE_VERSION "1.0"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0")
+  target_link_libraries(iris PRIVATE
+    "-framework Cocoa"
+    "-framework QuartzCore")
+else()
+  add_executable(iris src/main.cpp src/app.cpp ${IRIS_PLATFORM_SOURCES})
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
+  pkg_check_modules(APPINDICATOR REQUIRED IMPORTED_TARGET
+    ayatana-appindicator3-0.1)
+  pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
+  pkg_check_modules(XFIXES REQUIRED IMPORTED_TARGET xfixes)
+  target_link_libraries(iris PRIVATE
+    PkgConfig::GTK3
+    PkgConfig::APPINDICATOR
+    PkgConfig::X11
+    PkgConfig::XFIXES)
+endif()
+
+target_link_libraries(iris PRIVATE iris_core)
+
+# ---------------------------------------------------------------------------
+# Tests.
+# ---------------------------------------------------------------------------
+enable_testing()
+
+# doctest is header-only; download it but skip its (old) CMake project.
+CPMAddPackage(
+  NAME doctest
+  GITHUB_REPOSITORY doctest/doctest
+  VERSION 2.4.11
+  DOWNLOAD_ONLY YES)
+
+add_executable(iris_tests tests/test_fade_controller.cpp)
+target_link_libraries(iris_tests PRIVATE iris_core)
+target_include_directories(iris_tests PRIVATE "${doctest_SOURCE_DIR}")
+add_test(NAME unit COMMAND iris_tests)
+
+# End-to-end self-test that exercises the real overlay backend and exits after
+# one accelerated fade. On Linux it needs a display (CI wraps ctest in xvfb).
+add_test(NAME selftest COMMAND iris --selftest)
+set_tests_properties(selftest PROPERTIES TIMEOUT 60)

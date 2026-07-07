@@ -17,14 +17,21 @@ jobs:
       contents: write
 
     steps:
-      - name: Download build artifact
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: iris-windows-x64
+          path: artifacts
+
+      - name: Stage release assets
+        run: |
+          mkdir -p release
+          cp artifacts/iris-windows-x64/iris.exe release/iris-windows-x64.exe
+          cp artifacts/iris-linux-x64/iris release/iris-linux-x64
+          cp artifacts/iris-macos-x64/iris-macos.zip release/iris-macos-x64.zip
+          chmod +x release/iris-linux-x64
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: iris.exe
+          files: release/*
           generate_release_notes: true
-
