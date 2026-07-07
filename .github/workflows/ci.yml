@@ -9,8 +9,21 @@ on:
 
 jobs:
   build:
-    name: Build
-    runs-on: windows-latest
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: iris-windows-x64
+            artifact_path: build/iris.exe
+          - os: ubuntu-latest
+            artifact_name: iris-linux-x64
+            artifact_path: build/iris
+          - os: macos-latest
+            artifact_name: iris-macos-x64
+            artifact_path: build/iris-macos.zip
 
     steps:
       - name: Checkout repository
@@ -19,19 +32,97 @@ jobs:
       - name: Setup CMake and Ninja
         uses: lukka/get-cmake@latest
 
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libx11-dev \
+            libxfixes-dev \
+            pkg-config \
+            xvfb
+
       - name: Setup MSVC
+        if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Configure CMake
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Test (Linux, headless via xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a ctest --test-dir build --output-on-failure
+
+      - name: Test
+        if: runner.os != 'Linux'
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package macOS app bundle
+        if: runner.os == 'macOS'
+        run: |
+          cd build
+          zip -r iris-macos.zip iris.app
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iris-windows-x64
-          path: build/iris.exe
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
           retention-days: 7
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    # clang-format is host-independent, so it checks every file (including the
+    # Windows and macOS backends) here. clang-tidy is only reliable where its
+    # clang matches the platform's headers (pip's clang finds Linux headers but
+    # not the macOS SDK or MinGW/MSVC), so naming is enforced on Linux: this
+    # covers the shared core, every header-declared cross-platform symbol, and
+    # the Linux backend. The macOS/Windows backends are consistently named and
+    # format-checked, and can be tidied locally on their own toolchains.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libayatana-appindicator3-dev \
+            libx11-dev libxfixes-dev pkg-config
+
+      - name: Install clang-format and clang-tidy (pinned)
+        run: |
+          python3 -m pip install --user --break-system-packages \
+            clang-format==22.1.5 clang-tidy==22.1.7
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+
+      - name: Check formatting (all files, every platform backend)
+        run: |
+          files=$(find src tests -type f \
+            \( -name '*.cpp' -o -name '*.h' -o -name '*.mm' \))
+          clang-format --dry-run --Werror $files
+
+      - name: Configure (for compile database)
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Enforce naming convention (clang-tidy)
+        run: |
+          clang-tidy -p build \
+            --checks='-*,readability-identifier-naming' \
+            --warnings-as-errors='readability-identifier-naming' \
+            src/config.cpp src/fade_controller.cpp src/app.cpp src/main.cpp \
+            tests/test_fade_controller.cpp src/platform/linux.cpp
