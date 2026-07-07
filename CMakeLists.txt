@@ -125,3 +125,69 @@ add_test(NAME unit COMMAND iris_tests)
 # one accelerated fade. On Linux it needs a display (CI wraps ctest in xvfb).
 add_test(NAME selftest COMMAND iris --selftest)
 set_tests_properties(selftest PROPERTIES TIMEOUT 60)
+
+# ---------------------------------------------------------------------------
+# Developer tooling: `format`, `lint`, and `fix-lint` targets.
+#   cmake --build build --target format     # reformat all sources in place
+#   cmake --build build --target lint       # check formatting + run clang-tidy
+#   cmake --build build --target fix-lint   # apply clang-tidy auto-fixes
+# Targets are only created when the corresponding tools are found.
+# ---------------------------------------------------------------------------
+find_program(CLANG_FORMAT_EXE NAMES clang-format)
+find_program(CLANG_TIDY_EXE NAMES clang-tidy)
+
+# All sources to format (globbed; re-run CMake if the set changes).
+file(GLOB_RECURSE IRIS_FORMAT_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/src/*.cpp"
+  "${CMAKE_SOURCE_DIR}/src/*.h"
+  "${CMAKE_SOURCE_DIR}/src/*.mm"
+  "${CMAKE_SOURCE_DIR}/tests/*.cpp")
+
+# Translation units to analyse with clang-tidy. Only the current platform's
+# backend is present in the compile database, so only it is included.
+set(IRIS_TIDY_SOURCES
+  "${CMAKE_SOURCE_DIR}/src/config.cpp"
+  "${CMAKE_SOURCE_DIR}/src/fade_controller.cpp"
+  "${CMAKE_SOURCE_DIR}/src/app.cpp"
+  "${CMAKE_SOURCE_DIR}/src/main.cpp"
+  "${CMAKE_SOURCE_DIR}/tests/test_fade_controller.cpp"
+  "${CMAKE_SOURCE_DIR}/${IRIS_PLATFORM_SOURCES}")
+
+if(CLANG_FORMAT_EXE)
+  add_custom_target(format
+    COMMAND "${CLANG_FORMAT_EXE}" -i ${IRIS_FORMAT_SOURCES}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Formatting sources with clang-format"
+    VERBATIM)
+else()
+  message(STATUS "clang-format not found: 'format' target unavailable")
+endif()
+
+if(CLANG_TIDY_EXE)
+  # `lint` first checks formatting (if clang-format is available), then tidy.
+  if(CLANG_FORMAT_EXE)
+    add_custom_target(lint
+      COMMAND "${CLANG_FORMAT_EXE}" --dry-run --Werror ${IRIS_FORMAT_SOURCES}
+      COMMAND "${CLANG_TIDY_EXE}" -p "${CMAKE_BINARY_DIR}"
+              --warnings-as-errors=* ${IRIS_TIDY_SOURCES}
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      COMMENT "Checking formatting and running clang-tidy"
+      VERBATIM)
+  else()
+    add_custom_target(lint
+      COMMAND "${CLANG_TIDY_EXE}" -p "${CMAKE_BINARY_DIR}"
+              --warnings-as-errors=* ${IRIS_TIDY_SOURCES}
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      COMMENT "Running clang-tidy"
+      VERBATIM)
+  endif()
+
+  add_custom_target(fix-lint
+    COMMAND "${CLANG_TIDY_EXE}" -p "${CMAKE_BINARY_DIR}"
+            --fix --fix-errors ${IRIS_TIDY_SOURCES}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Applying clang-tidy auto-fixes"
+    VERBATIM)
+else()
+  message(STATUS "clang-tidy not found: 'lint' and 'fix-lint' targets unavailable")
+endif()
