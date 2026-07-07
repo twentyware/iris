@@ -51,6 +51,20 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+### Formatting and linting
+
+The code follows a single convention, enforced by `clang-format` and `clang-tidy`
+(`UpperCamelCase` for namespaces and types, `snake_case` for functions, methods,
+and variables). When `clang-format` and `clang-tidy` are installed, CMake exposes:
+
+```sh
+cmake --build build --target format     # reformat every source file in place
+cmake --build build --target lint       # check formatting and run clang-tidy
+cmake --build build --target fix-lint   # apply clang-tidy's auto-fixes
+```
+
+CI checks formatting on every file and enforces the naming convention.
+
 ## Improve Your Vision
 
 If you want to maintain or improve your vision (getting rid of glasses or contact lenses), I recommend checking out the
