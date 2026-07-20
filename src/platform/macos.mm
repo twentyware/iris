@@ -20,16 +20,7 @@ namespace Iris {
 class MacOverlay : public Overlay {
 public:
   MacOverlay() {
-    // Union of all screen frames so the overlay spans every display.
-    NSRect frame = NSZeroRect;
-    for (NSScreen *screen in [NSScreen screens]) {
-      frame = NSUnionRect(frame, [screen frame]);
-    }
-    if (NSIsEmptyRect(frame)) {
-      frame = NSMakeRect(0, 0, 100, 100);
-    }
-
-    window_ = [[NSWindow alloc] initWithContentRect:frame
+    window_ = [[NSWindow alloc] initWithContentRect:all_screens_frame()
                                           styleMask:NSWindowStyleMaskBorderless
                                             backing:NSBackingStoreBuffered
                                               defer:NO];
@@ -45,13 +36,30 @@ public:
                                    NSWindowCollectionBehaviorIgnoresCycle];
   }
 
-  void show() override { [window_ orderFrontRegardless]; }
+  void show() override {
+    // Re-fit to the union of the current screens so every display is covered
+    // even if one was added, removed, or resized since the last reminder.
+    [window_ setFrame:all_screens_frame() display:NO];
+    [window_ orderFrontRegardless];
+  }
 
   void set_alpha(float alpha) override { [window_ setAlphaValue:static_cast<CGFloat>(alpha)]; }
 
   void hide() override { [window_ orderOut:nil]; }
 
 private:
+  /// The rectangle spanning every attached display (a small fallback if none).
+  static NSRect all_screens_frame() {
+    NSRect frame = NSZeroRect;
+    for (NSScreen *screen in [NSScreen screens]) {
+      frame = NSUnionRect(frame, [screen frame]);
+    }
+    if (NSIsEmptyRect(frame)) {
+      frame = NSMakeRect(0, 0, 100, 100);
+    }
+    return frame;
+  }
+
   NSWindow *window_{nil}; // retained for the process lifetime
 };
 

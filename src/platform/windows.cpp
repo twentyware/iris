@@ -51,16 +51,12 @@ public:
     window_class.hbrBackground = CreateSolidBrush(RGB(0, 0, 0));
     RegisterClassW(&window_class);
 
-    const int screen_left = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    const int screen_top = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    const int screen_width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    const int screen_height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
+    const RECT bounds = virtual_screen_bounds();
     window_handle_ = CreateWindowExW(
       WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE |
         WS_EX_TOOLWINDOW, // no taskbar button, click-through, no focus
-      overlay_class, L"Iris Overlay", WS_POPUP, screen_left, screen_top, screen_width,
-      screen_height, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr
+      overlay_class, L"Iris Overlay", WS_POPUP, bounds.left, bounds.top, bounds.right - bounds.left,
+      bounds.bottom - bounds.top, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr
     );
     if (window_handle_ == nullptr) {
       throw std::runtime_error("Failed to create overlay window");
@@ -77,7 +73,16 @@ public:
   WindowsOverlay(const WindowsOverlay &) = delete;
   WindowsOverlay &operator=(const WindowsOverlay &) = delete;
 
-  void show() override { ShowWindow(window_handle_, SW_SHOWNOACTIVATE); }
+  void show() override {
+    // Re-fit to the whole virtual desktop so every monitor is covered even if
+    // the display layout changed since the window was created.
+    const RECT bounds = virtual_screen_bounds();
+    MoveWindow(
+      window_handle_, bounds.left, bounds.top, bounds.right - bounds.left,
+      bounds.bottom - bounds.top, FALSE
+    );
+    ShowWindow(window_handle_, SW_SHOWNOACTIVATE);
+  }
 
   void set_alpha(float alpha) override {
     const auto alpha_byte = static_cast<BYTE>(alpha * 255.0F + 0.5F);
@@ -87,6 +92,16 @@ public:
   void hide() override { ShowWindow(window_handle_, SW_HIDE); }
 
 private:
+  /// The bounding rectangle of the entire virtual desktop (all monitors).
+  static RECT virtual_screen_bounds() {
+    const int left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    const int top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    return RECT{
+      left, top, left + GetSystemMetrics(SM_CXVIRTUALSCREEN),
+      top + GetSystemMetrics(SM_CYVIRTUALSCREEN)
+    };
+  }
+
   HWND window_handle_{nullptr};
 };
 
