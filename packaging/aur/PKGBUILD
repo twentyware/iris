@@ -1,0 +1,28 @@
+# Maintainer: Ambrus Tóth <ping@ambrus.dev>
+pkgname=iris-bin
+_pkgname=iris
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="20-20-20 eye-rest reminder that gently dims the screen every 20 minutes"
+arch=('x86_64')
+url="https://github.com/twentyware/iris"
+license=('MIT')
+depends=('gtk3' 'libayatana-appindicator' 'libx11' 'libxfixes')
+provides=('iris')
+conflicts=('iris')
+source_x86_64=(
+  "iris-$pkgver::$url/releases/download/v$pkgver/iris-linux-x64"
+  "iris.desktop::$url/raw/v$pkgver/packaging/iris.desktop"
+  "LICENSE-$pkgver.txt::$url/raw/v$pkgver/LICENSE.txt"
+)
+sha256sums_x86_64=(
+  '@SHA256_LINUX@'
+  'SKIP'
+  'SKIP'
+)
+
+package() {
+  install -Dm755 "iris-$pkgver" "$pkgdir/usr/bin/iris"
+  install -Dm644 iris.desktop "$pkgdir/usr/share/applications/iris.desktop"
+  install -Dm644 "LICENSE-$pkgver.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

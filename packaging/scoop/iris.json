@@ -1,0 +1,32 @@
+{
+    "version": "@VERSION@",
+    "description": "20-20-20 eye-rest reminder that gently dims the screen every 20 minutes.",
+    "homepage": "https://github.com/twentyware/iris",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/twentyware/iris/releases/download/v@VERSION@/iris-windows-x64.exe",
+            "hash": "@SHA256_WIN_EXE@",
+            "bin": [
+                [
+                    "iris-windows-x64.exe",
+                    "iris"
+                ]
+            ],
+            "shortcuts": [
+                [
+                    "iris-windows-x64.exe",
+                    "Iris"
+                ]
+            ]
+        }
+    },
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/twentyware/iris/releases/download/v$version/iris-windows-x64.exe"
+            }
+        }
+    }
+}

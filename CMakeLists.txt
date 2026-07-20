@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.21)
-project(iris LANGUAGES CXX)
+
+# Version is normally injected from the git tag at release time
+# (-DIRIS_VERSION=1.2.3); it defaults to 0.0.0 for local/dev builds.
+if(NOT DEFINED IRIS_VERSION)
+  set(IRIS_VERSION "0.0.0")
+endif()
+project(iris VERSION ${IRIS_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -79,6 +85,9 @@ elseif(APPLE)
   add_executable(iris MACOSX_BUNDLE src/main.cpp src/app.cpp
     ${IRIS_PLATFORM_SOURCES})
   set_target_properties(iris PROPERTIES
+    # Produce Iris.app (matching the display name) rather than iris.app, so the
+    # bundle path is stable for the .dmg, Homebrew cask, and LaunchAgent.
+    OUTPUT_NAME "Iris"
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/packaging/Info.plist.in"
     MACOSX_BUNDLE_BUNDLE_NAME "Iris"
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.twentyware.iris"
@@ -192,4 +201,49 @@ if(CLANG_TIDY_EXE)
     VERBATIM)
 else()
   message(STATUS "clang-tidy not found: 'lint' and 'fix-lint' targets unavailable")
+endif()
+
+# ---------------------------------------------------------------------------
+# Installation and packaging (Linux .deb / .rpm via CPack).
+#
+# Windows (Inno Setup installer / portable exe) and macOS (.dmg / .app zip) are
+# packaged outside CMake in CI; see packaging/ and .github/workflows/ci.yml.
+# ---------------------------------------------------------------------------
+if(NOT WIN32 AND NOT APPLE)
+  include(GNUInstallDirs)
+  install(TARGETS iris RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(FILES packaging/iris.desktop
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+  install(FILES LICENSE.txt
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}" RENAME copyright)
+
+  set(CPACK_PACKAGE_NAME "iris")
+  set(CPACK_PACKAGE_VENDOR "TwentyWare")
+  set(CPACK_PACKAGE_CONTACT "Ambrus Tóth <ping@ambrus.dev>")
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "20-20-20 eye-rest reminder that gently dims the screen")
+  set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/twentyware/iris")
+  set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+  set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
+  set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+  set(CPACK_STRIP_FILES ON)
+
+  # Debian: name files as iris_<version>_<arch>.deb. Runtime dependencies are
+  # derived from the actual linkage by dpkg-shlibdeps rather than hardcoded, so
+  # they stay correct across distro renames (e.g. the 24.04 time64 transition
+  # that renamed libgtk-3-0 to libgtk-3-0t64).
+  set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+  set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+  set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+  set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+
+  # RPM: dependencies come from rpm's automatic shared-library requires (enabled
+  # by default), which resolve to soname provides on the target distro, so we do
+  # not hardcode distro-specific package names.
+  set(CPACK_RPM_FILE_NAME "RPM-DEFAULT")
+  set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+  set(CPACK_RPM_PACKAGE_GROUP "Applications/Productivity")
+  set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
+
+  include(CPack)
 endif()

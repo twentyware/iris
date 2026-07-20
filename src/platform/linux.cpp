@@ -14,6 +14,7 @@
 #include <memory>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 
 #include "app.h"
 #include "overlay.h"
@@ -28,7 +29,29 @@
 
 namespace Iris {
 
+namespace {
+
+/// Logs an X protocol error and lets the process continue.
+///
+/// Xlib's default error handler calls `exit`, which would kill this long-lived
+/// tray application on a transient error (e.g. operating on a window whose
+/// screen was just unplugged). Reminders are best-effort, so we log and carry
+/// on instead.
+int ignore_x_error(Display *display, XErrorEvent *error) {
+  char message[128];
+  XGetErrorText(display, error->error_code, message, sizeof(message));
+  std::fprintf(stderr, "iris: non-fatal X error: %s\n", message);
+  return 0;
+}
+
+} // namespace
+
 /// X11 override-redirect overlay with compositor-based opacity fading.
+///
+/// One window is created on every X screen so the fade appears on all displays
+/// at once; within a single X screen the window spans the whole root, so it
+/// also covers every RandR/Xinerama monitor. Geometry is re-queried on each
+/// `show()` so a resolution or monitor change between reminders is picked up.
 class LinuxOverlay : public Overlay {
 public:
   LinuxOverlay() {
@@ -39,28 +62,32 @@ public:
         "(Wayland is not supported)."
       );
     }
-    const int screen = DefaultScreen(display_);
-    Window root = RootWindow(display_, screen);
-    const int width = DisplayWidth(display_, screen);
-    const int height = DisplayHeight(display_, screen);
-
-    XSetWindowAttributes window_attributes = {};
-    window_attributes.override_redirect = True; // bypass the window manager
-    window_attributes.background_pixel = BlackPixel(display_, screen);
-    window_attributes.event_mask = 0; // we never read input events
-
-    window_ = XCreateWindow(
-      display_, root, 0, 0, static_cast<unsigned>(width), static_cast<unsigned>(height), 0,
-      CopyFromParent, InputOutput, CopyFromParent, CWOverrideRedirect | CWBackPixel,
-      &window_attributes
-    );
-
+    // Keep transient protocol errors from aborting this long-lived process.
+    XSetErrorHandler(&ignore_x_error);
     opacity_atom_ = XInternAtom(display_, "_NET_WM_WINDOW_OPACITY", False);
 
-    // Make the window click-through: give it an empty input shape region.
-    XserverRegion region = XFixesCreateRegion(display_, nullptr, 0);
-    XFixesSetWindowShapeRegion(display_, window_, ShapeInput, 0, 0, region);
-    XFixesDestroyRegion(display_, region);
+    const int screen_count = ScreenCount(display_);
+    for (int screen = 0; screen < screen_count; ++screen) {
+      Window root = RootWindow(display_, screen);
+
+      XSetWindowAttributes window_attributes = {};
+      window_attributes.override_redirect = True; // bypass the window manager
+      window_attributes.background_pixel = BlackPixel(display_, screen);
+      window_attributes.event_mask = 0; // we never read input events
+
+      Window window = XCreateWindow(
+        display_, root, 0, 0, static_cast<unsigned>(DisplayWidth(display_, screen)),
+        static_cast<unsigned>(DisplayHeight(display_, screen)), 0, CopyFromParent, InputOutput,
+        CopyFromParent, CWOverrideRedirect | CWBackPixel, &window_attributes
+      );
+
+      // Make the window click-through: give it an empty input shape region.
+      XserverRegion region = XFixesCreateRegion(display_, nullptr, 0);
+      XFixesSetWindowShapeRegion(display_, window, ShapeInput, 0, 0, region);
+      XFixesDestroyRegion(display_, region);
+
+      screens_.push_back({window, root});
+    }
 
     set_alpha(0.0F);
     XFlush(display_);
@@ -68,8 +95,8 @@ public:
 
   ~LinuxOverlay() override {
     if (display_ != nullptr) {
-      if (window_ != 0) {
-        XDestroyWindow(display_, window_);
+      for (const ScreenWindow &screen : screens_) {
+        XDestroyWindow(display_, screen.window);
       }
       XCloseDisplay(display_);
     }
@@ -79,8 +106,27 @@ public:
   LinuxOverlay &operator=(const LinuxOverlay &) = delete;
 
   void show() override {
-    XMapRaised(display_, window_);
-    XRaiseWindow(display_, window_);
+    for (const ScreenWindow &screen : screens_) {
+      // Re-fit to the current root size in case the resolution or monitor
+      // layout changed since the last reminder.
+      Window root_return = 0;
+      int x = 0;
+      int y = 0;
+      unsigned width = 0;
+      unsigned height = 0;
+      unsigned border = 0;
+      unsigned depth = 0;
+      if (
+        XGetGeometry(
+          display_, screen.root, &root_return, &x, &y, &width, &height, &border, &depth
+        ) != 0 &&
+        width > 0 && height > 0
+      ) {
+        XMoveResizeWindow(display_, screen.window, 0, 0, width, height);
+      }
+      XMapRaised(display_, screen.window);
+      XRaiseWindow(display_, screen.window);
+    }
     XFlush(display_);
   }
 
@@ -93,22 +139,32 @@ public:
     // array of `long` (truncated to 32 bits by the server).
     const unsigned long opacity =
       static_cast<unsigned long>(static_cast<double>(alpha) * 0xFFFFFFFFu);
-    XChangeProperty(
-      display_, window_, opacity_atom_, XA_CARDINAL, 32, PropModeReplace,
-      reinterpret_cast<const unsigned char *>(&opacity), 1
-    );
+    for (const ScreenWindow &screen : screens_) {
+      XChangeProperty(
+        display_, screen.window, opacity_atom_, XA_CARDINAL, 32, PropModeReplace,
+        reinterpret_cast<const unsigned char *>(&opacity), 1
+      );
+    }
     XFlush(display_);
   }
 
   void hide() override {
-    XUnmapWindow(display_, window_);
+    for (const ScreenWindow &screen : screens_) {
+      XUnmapWindow(display_, screen.window);
+    }
     XFlush(display_);
   }
 
 private:
+  /// An overlay window paired with the root it covers.
+  struct ScreenWindow {
+    Window window;
+    Window root;
+  };
+
   Display *display_{nullptr};
-  Window window_{0};
   Atom opacity_atom_{0};
+  std::vector<ScreenWindow> screens_;
 };
 
 /// Ayatana AppIndicator tray with an Enabled toggle, interval presets, and Quit.

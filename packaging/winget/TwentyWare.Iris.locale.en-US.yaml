@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: TwentyWare.Iris
+PackageVersion: "@VERSION@"
+PackageLocale: en-US
+Publisher: TwentyWare
+PublisherUrl: https://github.com/twentyware/iris
+PublisherSupportUrl: https://github.com/twentyware/iris/issues
+PackageName: Iris
+PackageUrl: https://github.com/twentyware/iris
+License: MIT
+LicenseUrl: https://github.com/twentyware/iris/blob/main/LICENSE.txt
+ShortDescription: 20-20-20 eye-rest reminder that gently dims the screen every 20 minutes.
+Description: >-
+  TwentyWare Iris reminds you to follow the 20-20-20 rule. Every 20 minutes it
+  gently dims your screen twice, on all monitors, as an unobtrusive nudge to
+  look away and rest your eyes. It lives in the system tray with no window of
+  its own.
+Moniker: iris
+Tags:
+  - eye-strain
+  - health
+  - productivity
+  - reminder
+  - tray
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
