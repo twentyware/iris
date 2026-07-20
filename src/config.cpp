@@ -53,6 +53,7 @@ Config Config::load(const std::vector<std::string> &arguments) {
     config.fade_in = std::chrono::milliseconds(120);
     config.hold = std::chrono::milliseconds(80);
     config.fade_out = std::chrono::milliseconds(120);
+    config.blink_gap = std::chrono::milliseconds(60);
   }
 
   return config;

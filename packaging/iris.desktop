@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Iris
-Comment=Fades the screen to black every 20 minutes to remind you to rest your eyes
+Comment=Gently dims the screen every 20 minutes to remind you to rest your eyes
 Exec=iris
 Icon=display-brightness-symbolic
 Terminal=false

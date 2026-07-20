@@ -1,6 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <chrono>
 
 #include "config.h"
@@ -11,14 +12,31 @@ using namespace std::chrono;
 
 namespace {
 
+// Round millisecond numbers keep the expected phase timeline easy to read.
+// Peak opacity is deliberately < 1 so blinks dim rather than black out.
+//
+// Timeline of one full reminder cycle (two blinks):
+//   0.....1000  Idle
+//   1000..1300  blink 1 FadeIn   (0 -> peak)
+//   1300..1600  blink 1 Hold     (peak)
+//   1600..1900  blink 1 FadeOut  (peak -> 0)
+//   1900..2100  Gap              (transparent)
+//   2100..2400  blink 2 FadeIn
+//   2400..2700  blink 2 Hold
+//   2700..3000  blink 2 FadeOut  -> Idle, completed_fades == 1
 Config make_config() {
   Config config;
   config.interval = milliseconds(1000);
   config.fade_in = milliseconds(300);
   config.hold = milliseconds(300);
   config.fade_out = milliseconds(300);
+  config.blink_gap = milliseconds(200);
+  config.blinks = 2;
+  config.peak_alpha = 0.15F;
   return config;
 }
+
+constexpr float peak = 0.15F;
 
 // A fixed origin so tests can build time points from millisecond offsets.
 const TimePoint origin{};
@@ -39,58 +57,91 @@ TEST_CASE("stays idle before the interval elapses") {
   CHECK(state.overlay_visible == false);
 }
 
-TEST_CASE("fade-in ramps alpha from 0 to 1") {
+TEST_CASE("a blink dims to the peak, not to full black") {
   FadeController controller(make_config(), at(0));
 
-  // Enter fade-in just after the interval.
+  // Enter the first blink's fade-in just after the interval.
   auto state = controller.update(at(1000));
   CHECK(controller.phase() == Phase::FadeIn);
   CHECK(state.overlay_visible == true);
   CHECK(state.alpha == doctest::Approx(0.0F));
 
-  // Halfway through the 300ms fade-in.
+  // Halfway through the 300ms fade-in: half of the peak.
   state = controller.update(at(1150));
-  CHECK(state.alpha == doctest::Approx(0.5F).epsilon(0.02));
+  CHECK(state.alpha == doctest::Approx(peak * 0.5F).epsilon(0.02));
 
-  // End of fade-in reaches full black.
-  state = controller.update(at(1300));
-  CHECK(state.alpha == doctest::Approx(1.0F));
-}
-
-TEST_CASE("holds full black during the hold phase") {
-  FadeController controller(make_config(), at(0));
-  controller.update(at(1000));              // fade-in
-  auto state = controller.update(at(1450)); // 150ms into hold
+  // Hold sits exactly at the peak - never fully black.
+  state = controller.update(at(1450));
   CHECK(controller.phase() == Phase::Hold);
-  CHECK(state.overlay_visible == true);
-  CHECK(state.alpha == doctest::Approx(1.0F));
+  CHECK(state.alpha == doctest::Approx(peak));
+
+  // Fade-out ramps the peak back down.
+  state = controller.update(at(1750));
+  CHECK(controller.phase() == Phase::FadeOut);
+  CHECK(state.alpha == doctest::Approx(peak * 0.5F).epsilon(0.02));
 }
 
-TEST_CASE("fade-out ramps alpha from 1 back to 0 and returns to idle") {
+TEST_CASE("blinks twice, separated by a transparent gap, per reminder") {
   FadeController controller(make_config(), at(0));
-  controller.update(at(1000));
 
-  // Middle of fade-out (interval 1000 + in 300 + hold 300 = 1600 start).
-  auto state = controller.update(at(1750));
-  CHECK(controller.phase() == Phase::FadeOut);
-  CHECK(state.alpha == doctest::Approx(0.5F).epsilon(0.02));
+  // After the first blink's fade-out we are in the Gap: still mapped, but fully
+  // transparent, and no reminder has completed yet.
+  auto state = controller.update(at(2000));
+  CHECK(controller.phase() == Phase::Gap);
+  CHECK(state.overlay_visible == true);
+  CHECK(state.alpha == doctest::Approx(0.0F));
+  CHECK(controller.completed_fades() == 0);
 
-  // After the full cycle we are idle again and a fade has completed.
-  state = controller.update(at(1900));
+  // The second blink runs the same ramp.
+  state = controller.update(at(2250));
+  CHECK(controller.phase() == Phase::FadeIn);
+  CHECK(state.alpha == doctest::Approx(peak * 0.5F).epsilon(0.02));
+
+  state = controller.update(at(2550));
+  CHECK(controller.phase() == Phase::Hold);
+  CHECK(state.alpha == doctest::Approx(peak));
+
+  // Only after the second blink does the reminder complete and return to idle.
+  state = controller.update(at(3000));
   CHECK(controller.phase() == Phase::Idle);
   CHECK(state.overlay_visible == false);
   CHECK(controller.completed_fades() == 1);
 }
 
+TEST_CASE("sampling a whole reminder shows exactly two distinct blinks") {
+  FadeController controller(make_config(), at(0));
+
+  // Walk the cycle in fine steps and count rising edges from transparent to
+  // visibly dimmed. There must be exactly `blinks` (2) of them.
+  int blinks = 0;
+  bool dimmed = false;
+  float peak_seen = 0.0F;
+  for (long long ms = 1000; ms <= 3000; ms += 10) {
+    const auto state = controller.update(at(ms));
+    peak_seen = std::max(peak_seen, state.alpha);
+    const bool now_dimmed = state.alpha > 0.01F;
+    if (now_dimmed && !dimmed) {
+      ++blinks;
+    }
+    dimmed = now_dimmed;
+  }
+  CHECK(blinks == 2);
+  // The overlay never gets darker than the configured peak.
+  CHECK(peak_seen <= doctest::Approx(peak));
+  CHECK(peak_seen == doctest::Approx(peak).epsilon(0.02));
+}
+
 TEST_CASE("a single coarse update can cross multiple phase boundaries") {
   FadeController controller(make_config(), at(0));
-  // Jump far past a full cycle in one step.
-  auto state = controller.update(at(5000));
-  CHECK(controller.completed_fades() >= 1);
-  // 5000ms: cycle length is 1900ms. 5000 = 1900*2 + 1200. Second cycle's idle
-  // ends at 3800; +1000 interval = 4800 -> fade-in started, 200ms in.
-  CHECK(controller.phase() == Phase::FadeIn);
-  CHECK(state.overlay_visible == true);
+  // Jump far past a full cycle (3000ms) in one step.
+  auto state = controller.update(at(3000));
+  CHECK(controller.completed_fades() == 1);
+  CHECK(controller.phase() == Phase::Idle);
+  CHECK(state.overlay_visible == false);
+
+  // Two full cycles land back in idle again.
+  state = controller.update(at(6000));
+  CHECK(controller.completed_fades() == 2);
 }
 
 TEST_CASE("disabling hides the overlay and resets the timer") {
@@ -101,12 +152,12 @@ TEST_CASE("disabling hides the overlay and resets the timer") {
   CHECK(state.overlay_visible == false);
   CHECK(controller.phase() == Phase::Idle);
 
-  // Re-enable: the interval must restart, so no fade at +500ms...
+  // Re-enable: the interval must restart, so no blink at +500ms...
   controller.set_enabled(true, at(2000));
   state = controller.update(at(2500));
   CHECK(state.overlay_visible == false);
 
-  // ...but a fade after a full fresh interval.
+  // ...but a blink after a full fresh interval.
   state = controller.update(at(3050));
   CHECK(state.overlay_visible == true);
   CHECK(controller.phase() == Phase::FadeIn);
@@ -139,4 +190,11 @@ TEST_CASE("config parses selftest and interval overrides") {
   // Invalid values are ignored, leaving the default.
   config = Config::load({"--interval-seconds", "oops"});
   CHECK(config.interval == minutes(20));
+}
+
+TEST_CASE("defaults dim gently and blink more than once") {
+  const Config config;
+  CHECK(config.blinks >= 2);
+  CHECK(config.peak_alpha > 0.0F);
+  CHECK(config.peak_alpha < 1.0F);
 }
