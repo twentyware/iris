@@ -71,6 +71,30 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a ctest --test-dir build --output-on-failure
 
+      - name: Test Wayland overlay (Linux, headless sway)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y sway libgtk-layer-shell0
+          export XDG_RUNTIME_DIR=/tmp/iris-xdg
+          mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+          # A headless wlroots compositor provides the layer-shell protocol
+          # that the native Wayland backend needs; pixman avoids GPU use.
+          WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman \
+            sway -c /dev/null > /tmp/sway.log 2>&1 &
+          socket=""
+          for _ in $(seq 1 50); do
+            socket=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name 'wayland-*' \
+              ! -name '*.lock' -printf '%f\n' | head -n1)
+            [ -n "$socket" ] && break
+            sleep 0.2
+          done
+          [ -n "$socket" ] || { echo '::error::sway did not start'; cat /tmp/sway.log; exit 1; }
+          # Force the layer-shell backend: a fallback to X11 must fail loudly
+          # here, not silently pass the test.
+          env -u DISPLAY GDK_BACKEND=wayland WAYLAND_DISPLAY="$socket" \
+            IRIS_BACKEND=wayland ./build/iris --selftest
+
       - name: Test
         if: runner.os != 'Linux'
         run: ctest --test-dir build --output-on-failure

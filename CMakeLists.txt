@@ -108,7 +108,9 @@ else()
     PkgConfig::GTK3
     PkgConfig::APPINDICATOR
     PkgConfig::X11
-    PkgConfig::XFIXES)
+    PkgConfig::XFIXES
+    # For dlopen()ing gtk-layer-shell at runtime (native Wayland overlay).
+    ${CMAKE_DL_LIBS})
 endif()
 
 target_link_libraries(iris PRIVATE iris_core)
@@ -236,6 +238,9 @@ if(NOT WIN32 AND NOT APPLE)
   set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
   set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
   set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+  # gtk-layer-shell is dlopen()ed (not linked), so shlibdeps cannot see it;
+  # recommend it explicitly for the native Wayland overlay path.
+  set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "libgtk-layer-shell0")
 
   # RPM: dependencies come from rpm's automatic shared-library requires (enabled
   # by default), which resolve to soname provides on the target distro, so we do
@@ -244,6 +249,9 @@ if(NOT WIN32 AND NOT APPLE)
   set(CPACK_RPM_PACKAGE_LICENSE "MIT")
   set(CPACK_RPM_PACKAGE_GROUP "Applications/Productivity")
   set(CPACK_RPM_PACKAGE_URL "${CPACK_PACKAGE_HOMEPAGE_URL}")
+  # Weak dependency counterpart of the .deb Recommends (dlopen()ed, so the
+  # automatic soname requires cannot see it).
+  set(CPACK_RPM_PACKAGE_SUGGESTS "gtk-layer-shell")
 
   include(CPack)
 endif()

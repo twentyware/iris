@@ -12,7 +12,7 @@ The length of the break is up to you, you can count in your head or stop as you 
 > Note: When looking at the screen, we tend to blink less frequently, which dries out the eyes and also contributes to
 > fatigue. You can also take the opportunity to drink a sip of water during your break.
 
-TwentyWare Iris is cross-platform and runs on Windows, Linux (X11), and macOS. It lives quietly in the
+TwentyWare Iris is cross-platform and runs on Windows, Linux, and macOS. It lives quietly in the
 system tray / menu bar with no window of its own — the only thing you ever see is the brief dim, which
 appears on all of your monitors at the same time.
 
@@ -33,9 +33,11 @@ platform. All downloads are on the [releases page](https://github.com/twentyware
 
 ### Linux
 
-Requires an **Xorg session** (Wayland has no client-side overlay protocol; on Ubuntu choose
-"Ubuntu on Xorg" at the login screen). The tray icon uses AppIndicator, which is built into GNOME on
-Ubuntu.
+Works on both **Xorg and Wayland** sessions. On Wayland, Iris uses the native layer-shell protocol
+where the compositor supports it (KDE Plasma, Sway, Hyprland, …; install `gtk-layer-shell` — the
+`.deb`/`.rpm` recommend it automatically); elsewhere (notably GNOME, and thus stock Ubuntu) it falls
+back to XWayland, which GNOME renders above regular windows with the opacity fade intact. The tray
+icon uses AppIndicator, which is built into GNOME on Ubuntu.
 
 - **Debian / Ubuntu** — `sudo apt install ./iris_<version>_amd64.deb` (installs `iris` and a desktop
   entry, and pulls in the required libraries).
