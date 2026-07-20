@@ -49,6 +49,10 @@ display, and confines every platform dependency to a single backend file:
 - `src/platform/{linux,windows,macos}.*` — the per-OS overlay, tray, and event loop. Each creates an
   overlay that covers **all** displays so a reminder appears everywhere at once, and re-fits itself to
   the current screen layout on every reminder so resolution or monitor changes are handled gracefully.
+  The Linux backend has two overlay implementations selected at runtime (overridable with
+  `IRIS_BACKEND=x11|wayland`): a native Wayland layer-shell surface via a dlopen()ed gtk-layer-shell,
+  and an X11 override-redirect window used on Xorg and, via XWayland, on compositors without
+  layer-shell (GNOME).
 - `tests/` — doctest-based unit tests for the core.
 
 ## Formatting and linting

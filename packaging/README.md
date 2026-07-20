@@ -52,7 +52,10 @@ workflow generates `SHA256SUMS` over **all** assets and self-verifies it.
 
 Runtime dependencies are not hardcoded: the `.deb` derives them via
 `dpkg-shlibdeps` and the `.rpm` via rpm's automatic shared-library requires, so
-they stay correct across distro package renames.
+they stay correct across distro package renames. The one exception is
+`gtk-layer-shell` (the native Wayland overlay), which is dlopen()ed rather than
+linked so automatic dependency scanners cannot see it; it is declared manually
+as a `.deb` Recommends / `.rpm` Suggests / AUR optdepends.
 
 ## Updating the package-manager channels on release
 
