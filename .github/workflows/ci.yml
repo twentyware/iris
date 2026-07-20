@@ -9,21 +9,12 @@ on:
 
 jobs:
   build:
-    name: Build & Test (${{ matrix.os }})
+    name: Build, Test & Package (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            artifact_name: iris-windows-x64
-            artifact_path: build/iris.exe
-          - os: ubuntu-latest
-            artifact_name: iris-linux-x64
-            artifact_path: build/iris
-          - os: macos-latest
-            artifact_name: iris-macos-x64
-            artifact_path: build/iris-macos.zip
+        os: [windows-latest, ubuntu-latest, macos-latest]
 
     steps:
       - name: Checkout repository
@@ -31,6 +22,17 @@ jobs:
 
       - name: Setup CMake and Ninja
         uses: lukka/get-cmake@latest
+
+      - name: Compute version
+        id: version
+        shell: bash
+        # Release builds run at a v* tag; everything else is a 0.0.0 dev build.
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "${GITHUB_REF_NAME#v}" != "$GITHUB_REF_NAME" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=0.0.0" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -42,7 +44,8 @@ jobs:
             libx11-dev \
             libxfixes-dev \
             pkg-config \
-            xvfb
+            xvfb \
+            rpm
 
       - name: Setup MSVC
         if: runner.os == 'Windows'
@@ -50,11 +53,16 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+        run: >
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          -DIRIS_VERSION=${{ steps.version.outputs.value }}
 
       - name: Configure (Unix)
         if: runner.os != 'Windows'
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: >
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DIRIS_VERSION=${{ steps.version.outputs.value }}
 
       - name: Build
         run: cmake --build build --config Release
@@ -67,17 +75,87 @@ jobs:
         if: runner.os != 'Linux'
         run: ctest --test-dir build --output-on-failure
 
-      - name: Package macOS app bundle
+      # ---------------------------------------------------------------------
+      # Packaging + install smoke tests. Portable builds are the bare
+      # executable; installers are the native format for each OS.
+      # ---------------------------------------------------------------------
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          (cd build && cpack -G DEB && cpack -G RPM)
+          cp build/*.deb dist/
+          cp build/*.rpm dist/
+          cp build/iris dist/iris-linux-x64
+          chmod +x dist/iris-linux-x64
+
+      - name: Test packages (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          # The .deb must install, pull its runtime deps, run, and remove cleanly.
+          sudo apt-get install -y ./dist/iris_*.deb
+          command -v iris
+          xvfb-run -a iris --selftest
+          sudo apt-get remove -y iris
+          # The .rpm can't be installed on Ubuntu, but must be a well-formed package.
+          rpm -qip dist/iris-*.rpm
+          rpm -qlp dist/iris-*.rpm
+
+      - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          cd build
-          zip -r iris-macos.zip iris.app
+          mkdir -p dist dmgroot
+          cp -R build/Iris.app dmgroot/
+          ln -s /Applications dmgroot/Applications
+          hdiutil create -volname Iris -srcfolder dmgroot -ov -format UDZO \
+            dist/iris-macos-x64.dmg
+          ditto -c -k --keepParent build/Iris.app dist/iris-macos-x64.zip
 
-      - name: Upload build artifact
+      - name: Test package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil attach dist/iris-macos-x64.dmg -mountpoint /Volumes/Iris
+          test -d "/Volumes/Iris/Iris.app"
+          "/Volumes/Iris/Iris.app/Contents/MacOS/Iris" --selftest
+          hdiutil detach /Volumes/Iris
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item build\iris.exe dist\iris-windows-x64.exe
+          choco install innosetup --no-progress -y
+          # Inno resolves relative paths against the .iss directory, so pass
+          # absolute paths for the source exe, license, and output directory.
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DMyAppVersion=${{ steps.version.outputs.value }} `
+            "/DSourceExe=$env:GITHUB_WORKSPACE\build\iris.exe" `
+            "/DLicensePath=$env:GITHUB_WORKSPACE\LICENSE.txt" `
+            "/DOutputDir=$env:GITHUB_WORKSPACE\dist" `
+            packaging\windows\iris.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
+
+      - name: Test installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = "dist\iris-windows-x64-setup.exe"
+          Start-Process -FilePath $setup `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          $exe = "$env:LOCALAPPDATA\Programs\Iris\iris.exe"
+          if (-not (Test-Path $exe)) { throw "installed exe not found at $exe" }
+          $p = Start-Process -FilePath $exe -ArgumentList '--selftest' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "selftest failed: $($p.ExitCode)" }
+          Start-Process -FilePath "$env:LOCALAPPDATA\Programs\Iris\unins000.exe" `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+
+      - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_path }}
+          name: packages-${{ runner.os }}
+          path: dist/*
           retention-days: 7
 
   lint:
@@ -126,3 +204,99 @@ jobs:
             --warnings-as-errors='readability-identifier-naming' \
             src/config.cpp src/fade_controller.cpp src/app.cpp src/main.cpp \
             tests/test_fade_controller.cpp src/platform/linux.cpp
+
+  package-lint:
+    name: Package manifests lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ruby desktop-file-utils libxml2-utils python3-yaml
+
+      - name: Validate manifest and template syntax
+        run: |
+          set -euo pipefail
+          echo "::group::scoop (json)"
+          python3 -m json.tool packaging/scoop/iris.json > /dev/null
+          echo "::endgroup::"
+          echo "::group::winget (yaml)"
+          for f in packaging/winget/*.yaml; do
+            python3 -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "$f"
+          done
+          echo "::endgroup::"
+          echo "::group::homebrew cask (ruby)"
+          ruby -c packaging/homebrew/iris.rb
+          echo "::endgroup::"
+          echo "::group::aur PKGBUILD (bash)"
+          bash -n packaging/aur/PKGBUILD
+          echo "::endgroup::"
+          echo "::group::plists (xml)"
+          xmllint --noout packaging/macos/com.twentyware.iris.plist packaging/Info.plist.in
+          echo "::endgroup::"
+          echo "::group::desktop entry"
+          desktop-file-validate packaging/iris.desktop
+          echo "::endgroup::"
+
+      - name: Check template placeholders are all fillable
+        run: |
+          set -euo pipefail
+          # Every @TOKEN@ used in a template must be one the release workflow
+          # substitutes; a typo here would ship an unfilled manifest.
+          known='@VERSION@|@SHA256_WIN_EXE@|@SHA256_WIN_SETUP@|@SHA256_MACOS_ZIP@|@SHA256_LINUX@'
+          bad=$(grep -rhoE '@[A-Z0-9_]+@' \
+                  packaging/scoop packaging/homebrew packaging/winget packaging/aur \
+                | sort -u | grep -vE "^(${known})$" || true)
+          if [ -n "$bad" ]; then
+            echo "::error::unknown placeholder(s) no release step fills:"; echo "$bad"; exit 1
+          fi
+
+      - name: Dry-run the manifest fill and validate the results
+        run: |
+          set -euo pipefail
+          # Fill templates with a fake version + checksums and confirm the
+          # results are still valid (no placeholder left, JSON/YAML still parse).
+          sha=$(printf 'a%.0s' {1..64})
+          fill() {
+            sed -e "s/@VERSION@/9.9.9/g" \
+                -e "s/@SHA256_WIN_EXE@/${sha}/g" -e "s/@SHA256_WIN_SETUP@/${sha}/g" \
+                -e "s/@SHA256_MACOS_ZIP@/${sha}/g" -e "s/@SHA256_LINUX@/${sha}/g" "$1"
+          }
+          fill packaging/scoop/iris.json | python3 -m json.tool > /dev/null
+          for f in packaging/winget/*.yaml; do
+            fill "$f" | python3 -c "import sys,yaml; yaml.safe_load(sys.stdin)"
+          done
+          fill packaging/homebrew/iris.rb | ruby -c /dev/stdin
+          for t in packaging/scoop/iris.json packaging/winget/*.yaml \
+                   packaging/homebrew/iris.rb packaging/aur/PKGBUILD; do
+            fill "$t" | grep -qE '@[A-Z0-9_]+@' && { echo "::error::$t still has a placeholder"; exit 1; } || true
+          done
+
+  test-rpm:
+    name: Test .rpm on Fedora
+    needs: build
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Download Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: packages-Linux
+          path: dist
+
+      - name: Install and verify the .rpm on Fedora
+        run: |
+          set -euo pipefail
+          # dnf fails here if any Requires can't be resolved on Fedora — exactly
+          # the class of bug a hardcoded/wrong dependency name would introduce.
+          dnf install -y ./dist/iris-*.rpm
+          test -x /usr/bin/iris
+          # No runtime library may be missing after dependency resolution.
+          ldd /usr/bin/iris
+          if ldd /usr/bin/iris | grep -q 'not found'; then
+            echo "::error::missing shared library on Fedora"; exit 1
+          fi

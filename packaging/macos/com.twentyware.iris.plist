@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent that starts Iris at login.
+
+  Install:
+    cp com.twentyware.iris.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.twentyware.iris.plist
+
+  Remove:
+    launchctl unload ~/Library/LaunchAgents/com.twentyware.iris.plist
+    rm ~/Library/LaunchAgents/com.twentyware.iris.plist
+
+  Assumes Iris.app is in /Applications. Adjust the path below if you installed
+  it elsewhere.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.twentyware.iris</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/Iris.app/Contents/MacOS/Iris</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>

@@ -17,6 +17,13 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compute version
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -24,11 +31,64 @@ jobs:
 
       - name: Stage release assets
         run: |
+          set -euo pipefail
           mkdir -p release
-          cp artifacts/iris-windows-x64/iris.exe release/iris-windows-x64.exe
-          cp artifacts/iris-linux-x64/iris release/iris-linux-x64
-          cp artifacts/iris-macos-x64/iris-macos.zip release/iris-macos-x64.zip
-          chmod +x release/iris-linux-x64
+          find artifacts -type f -exec cp {} release/ \;
+          ls -l release
+
+      - name: Generate package-manager manifests
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          sha() { sha256sum "release/$1" | cut -d' ' -f1; }
+          sha_win_exe=$(sha iris-windows-x64.exe)
+          sha_win_setup=$(sha iris-windows-x64-setup.exe)
+          sha_mac_zip=$(sha iris-macos-x64.zip)
+          sha_linux=$(sha iris-linux-x64)
+
+          fill() {
+            sed \
+              -e "s/@VERSION@/${VERSION}/g" \
+              -e "s/@SHA256_WIN_EXE@/${sha_win_exe}/g" \
+              -e "s/@SHA256_WIN_SETUP@/${sha_win_setup^^}/g" \
+              -e "s/@SHA256_MACOS_ZIP@/${sha_mac_zip}/g" \
+              -e "s/@SHA256_LINUX@/${sha_linux}/g" \
+              "$1"
+          }
+
+          mkdir -p manifests/scoop manifests/homebrew manifests/winget manifests/aur
+          fill packaging/scoop/iris.json      > manifests/scoop/iris.json
+          fill packaging/homebrew/iris.rb     > manifests/homebrew/iris.rb
+          for f in packaging/winget/*.yaml; do
+            fill "$f" > "manifests/winget/$(basename "$f")"
+          done
+          fill packaging/aur/PKGBUILD         > manifests/aur/PKGBUILD
+
+          # No @...@ placeholder may survive substitution.
+          if grep -rEn '@[A-Z0-9_]+@' manifests; then
+            echo "::error::unfilled placeholder in generated manifests"; exit 1
+          fi
+
+          (cd manifests && zip -r ../release/package-manifests.zip .)
+          echo "--- filled scoop manifest ---"; cat manifests/scoop/iris.json
+
+      - name: Checksum every release asset
+        run: |
+          set -euo pipefail
+          # Generated last so SHA256SUMS covers every asset, including the
+          # manifests bundle, and then self-verifies.
+          (cd release && sha256sum --binary * > ../SHA256SUMS && mv ../SHA256SUMS ./SHA256SUMS)
+          (cd release && sha256sum -c SHA256SUMS)
+          # Fail if any asset is missing a checksum line.
+          missing=0
+          for f in release/*; do
+            base=$(basename "$f")
+            [ "$base" = SHA256SUMS ] && continue
+            grep -q " \*\?$base$" release/SHA256SUMS || { echo "no checksum for $base"; missing=1; }
+          done
+          [ "$missing" -eq 0 ]
+          cat release/SHA256SUMS
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
